@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8" />
+    <title>FTF Model Upload</title>
+</head>
+<body>
+    <h1>Upload Excel bestand</h1>
+    <form action="/process_excel/" method="post" enctype="multipart/form-data">
+        <input type="file" name="file" accept=".xlsx" required />
+        <button type="submit">Verwerk</button>
+    </form>
+
+</body>
+</html>
