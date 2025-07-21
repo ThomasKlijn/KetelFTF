@@ -21,22 +21,35 @@ ketel_vec = joblib.load("ketel_vectorizer_Vfinal.joblib")
 ftf_model = joblib.load("ftf_model_Vfinal.joblib")
 ftf_vec = joblib.load("ftf_vectorizer_Vfinal.joblib")
 
-# Kolommen die je gebruikt (pas eventueel aan)
-oplossingskolommen = ["Oplossingen", "Unnamed: 19", "Unnamed: 20", "Unnamed: 21", "Unnamed: 22", "Unnamed: 23", "Unnamed: 24"]
-tekstkolommen = [
-    "Werkbeschrijving", "Oplossingen_samengevoegd", "Werkbon is vervolg van",
-    "Werkbon nummer", "Uitvoerdatum", "Object referentie", "Installatie apparaat omschrijving"
-]
-
 @app.post("/process_excel/")
 async def process_excel(file: UploadFile = File(...)):
     # Lees geüpload bestand in memory
     contents = await file.read()
     df_prod = pd.read_excel(BytesIO(contents), sheet_name="Leeg")
 
+    # Dynamisch bepalen welke kolommen er zijn
+    alle_kolommen = df_prod.columns.tolist()
+    
+    # Zoek naar oplossingskolommen die daadwerkelijk bestaan
+    potentiele_oplossingskolommen = ["Oplossingen"] + [col for col in alle_kolommen if col.startswith("Unnamed:")]
+    oplossingskolommen = [col for col in potentiele_oplossingskolommen if col in alle_kolommen]
+    
+    # Basis tekstkolommen die meestal bestaan
+    basis_tekstkolommen = [
+        "Werkbeschrijving", "Werkbon is vervolg van",
+        "Werkbon nummer", "Uitvoerdatum", "Object referentie", "Installatie apparaat omschrijving"
+    ]
+    tekstkolommen = [col for col in basis_tekstkolommen if col in alle_kolommen]
+
     # Vul oplossingen kolommen leeg met lege strings
-    df_prod[oplossingskolommen] = df_prod[oplossingskolommen].fillna("")
-    df_prod["Oplossingen_samengevoegd"] = df_prod[oplossingskolommen].astype(str).agg(" ".join, axis=1)
+    if oplossingskolommen:
+        df_prod[oplossingskolommen] = df_prod[oplossingskolommen].fillna("")
+        df_prod["Oplossingen_samengevoegd"] = df_prod[oplossingskolommen].astype(str).agg(" ".join, axis=1)
+    else:
+        df_prod["Oplossingen_samengevoegd"] = ""
+    
+    # Voeg Oplossingen_samengevoegd toe aan tekstkolommen
+    tekstkolommen.append("Oplossingen_samengevoegd")
 
     df_prod[tekstkolommen] = df_prod[tekstkolommen].fillna("")
     df_prod["combined_text"] = df_prod[tekstkolommen].apply(lambda r: " ".join([str(x) for x in r]), axis=1)
