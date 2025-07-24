@@ -7,7 +7,7 @@ from io import BytesIO
 import openpyxl
 from openpyxl.styles import PatternFill
 import uvicorn
-from rapidfuzz import process  # voor fuzzy matching
+from rapidfuzz import fuzz
 
 app = FastAPI()
 
@@ -21,22 +21,21 @@ ketel_vec = joblib.load("ketel_vectorizer_Vfinal.joblib")
 ftf_model = joblib.load("ftf_model_Vfinal.joblib")
 ftf_vec = joblib.load("ftf_vectorizer_Vfinal.joblib")
 
-# Keywoordenlijst met labels 'j' of 'n'
-keywords_labels = {
+# Keyword lijst met 'j' of 'n'
+keywords_dict = {
     "Flowsensor vervangen": "j",
     "aansturing ivm 9U": "j",
     "aansturing Nefit": "j",
     "aansturing ivm 9P": "j",
     "lek hydroblok": "j",
     "defecte KIM": "j",
+    "aansturing Nefit": "j",
     "platenwisselaar vervangen": "j",
     "Het hydroblok was lek": "j",
     "RGA beugelen": "n",
     "RGA gebeugeld": "n",
     "Druksensor vervangen": "j",
     "Condensafvoer": "n",
-    "Hoofdprint vervangen": "j",
-    "ontstek pen vv": "j",
     "thermostaat van de klant is niet goed": "n",
     "wartel bij de pomp": "j",
     "Ontsteekpen vervangen": "j",
@@ -79,15 +78,15 @@ keywords_labels = {
     "Ketel afgekeurd - nog vervangen": "j",
     "thermostaat vervangen": "n",
     "Afuizing badkamer": "n",
-    "Kamerthermostaat vervangen": "n"
+    "Kamerthermostaat vervangen": "n",
 }
 
-def find_keyword_label(text, keywords_dict, threshold=80):
-    if not isinstance(text, str) or text.strip() == "":
-        return None
-    match, score, _ = process.extractOne(text, keywords_dict.keys())
-    if score >= threshold:
-        return keywords_dict[match]
+def find_keyword_label(text, keywords, threshold=85):
+    text_lower = text.lower()
+    for kw, label in keywords.items():
+        # Fuzzy partial ratio voor typo tolerant matching
+        if fuzz.partial_ratio(kw.lower(), text_lower) >= threshold:
+            return label
     return None
 
 @app.post("/process_excel/")
@@ -129,32 +128,31 @@ async def process_excel(file: UploadFile = File(...)):
     df_prod["contains_reset"] = df_prod["combined_text"].str.contains("reset|herstart", case=False).astype(int)
     df_prod["contains_advies"] = df_prod["combined_text"].str.contains("advies|aanbeveling", case=False).astype(int)
 
-    # Toevoegen keyword label met fuzzy matching
-    df_prod['keyword_label'] = df_prod['combined_text'].apply(lambda x: find_keyword_label(x, keywords_labels))
+    # Vul direct Ketel gerelateerd op basis van keywords
+    df_prod["Ketel gerelateerd keyword"] = df_prod["combined_text"].apply(lambda x: find_keyword_label(x, keywords_dict))
 
-    # Ketel voorspellen
-    X_text_k = df_prod["combined_text"]
-    X_vec_k = ketel_vec.transform(X_text_k).toarray()
-    extra_k = df_prod[["heeft_vervolg", "tekstlengte", "woordenaantal", "contains_onderdeel", "contains_reset", "contains_advies"]].values
-    X_comb_k = np.hstack((X_vec_k, extra_k))
+    # Vul 'Ketel gerelateerd' waar keyword match is gevonden
+    df_prod.loc[df_prod["Ketel gerelateerd keyword"].notnull(), "Ketel gerelateerd"] = df_prod["Ketel gerelateerd keyword"]
 
-    y_proba_k = ketel_model.predict_proba(X_comb_k)
-    y_pred_k = ketel_model.predict(X_comb_k)
+    # Masker voor rijen zonder Ketel gerelateerd waarde (nog leeg of None)
+    mask_model = df_prod["Ketel gerelateerd"].isnull() | (df_prod["Ketel gerelateerd"] == "")
 
-    # Override voorspelling met keyword_label als die er is
-    for i, label in enumerate(df_prod['keyword_label']):
-        if label == "j":
-            y_pred_k[i] = 1
-        elif label == "n":
-            y_pred_k[i] = 0
+    # Voorspel alleen voor die rijen met het model
+    if mask_model.any():
+        X_text_k = df_prod.loc[mask_model, "combined_text"]
+        X_vec_k = ketel_vec.transform(X_text_k).toarray()
+        extra_k = df_prod.loc[mask_model, ["heeft_vervolg", "tekstlengte", "woordenaantal", "contains_onderdeel", "contains_reset", "contains_advies"]].values
+        X_comb_k = np.hstack((X_vec_k, extra_k))
 
-    # Vul bestaande kolom 'Ketel gerelateerd'
-    df_prod["Ketel gerelateerd"] = np.where(y_proba_k.max(axis=1) > 0.6, np.where(y_pred_k == 1, "j", "n"), "")
+        y_proba_k = ketel_model.predict_proba(X_comb_k)
+        y_pred_k = ketel_model.predict(X_comb_k)
 
-    # Voeg zekerheid toe
-    df_prod["Ketel zekerheid"] = y_proba_k.max(axis=1)
+        df_prod.loc[mask_model, "Ketel gerelateerd"] = np.where(y_proba_k.max(axis=1) > 0.6, np.where(y_pred_k == 1, "j", "n"), "")
+        df_prod.loc[mask_model, "Ketel zekerheid"] = y_proba_k.max(axis=1)
+    else:
+        df_prod["Ketel zekerheid"] = 1.0  # default als alles door keywords is ingevuld
 
-    # FTF voorspellen waar ketel 'j' is met zekerheid > 0.4 (of andere logica)
+    # FTF voorspellen waar ketel 'j' is met zekerheid > 0.4
     mask_ftf = (df_prod["Ketel gerelateerd"] == "j") & (df_prod["Ketel zekerheid"] > 0.4)
     df_ftf = df_prod[mask_ftf].copy()
 
@@ -166,21 +164,16 @@ async def process_excel(file: UploadFile = File(...)):
     y_proba_f = ftf_model.predict_proba(X_comb_f)
     y_pred_f = ftf_model.predict(X_comb_f)
 
-    # Vul bestaande kolom 'FTF'
     df_ftf["FTF"] = np.where(y_proba_f.max(axis=1) > 0.7, y_pred_f.astype(str), "")
-
-    # Voeg zekerheid toe
     df_ftf["FTF zekerheid"] = y_proba_f.max(axis=1)
 
-    # Zet deze terug in hoofd dataframe
     df_prod.loc[df_ftf.index, "FTF"] = df_ftf["FTF"]
     df_prod.loc[df_ftf.index, "FTF zekerheid"] = df_ftf["FTF zekerheid"]
 
-    # Kleurcodering in output Excel
+    # Kleurcodering output
     wb = openpyxl.Workbook()
     ws = wb.active
 
-    # Schrijf kolomnamen
     for col_idx, col_name in enumerate(df_prod.columns, start=1):
         ws.cell(row=1, column=col_idx, value=col_name)
 
@@ -192,20 +185,18 @@ async def process_excel(file: UploadFile = File(...)):
         for col_idx, col_name in enumerate(df_prod.columns, start=1):
             cell = ws.cell(row=excel_row, column=col_idx, value=row[col_name])
 
-            # Kleur Ketel gerelateerd kolom
             if col_name == "Ketel gerelateerd":
-                if row["Ketel zekerheid"] > 0.6:
+                if row.get("Ketel zekerheid", 0) > 0.6:
                     cell.fill = geel
-                elif 0.4 <= row["Ketel zekerheid"] <= 0.6:
-                    cell.fill = oranje
-            # Kleur FTF kolom
-            if col_name == "FTF":
-                if row["FTF zekerheid"] > 0.7:
-                    cell.fill = geel
-                elif 0.4 <= row["FTF zekerheid"] <= 0.7:
+                elif 0.4 <= row.get("Ketel zekerheid", 0) <= 0.6:
                     cell.fill = oranje
 
-    # Output naar bytes buffer
+            if col_name == "FTF":
+                if row.get("FTF zekerheid", 0) > 0.7:
+                    cell.fill = geel
+                elif 0.4 <= row.get("FTF zekerheid", 0) <= 0.7:
+                    cell.fill = oranje
+
     stream = BytesIO()
     wb.save(stream)
     stream.seek(0)
