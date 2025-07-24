@@ -1,4 +1,3 @@
-
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import StreamingResponse, FileResponse
 import pandas as pd
@@ -8,6 +7,7 @@ from io import BytesIO
 import openpyxl
 from openpyxl.styles import PatternFill
 import uvicorn
+from rapidfuzz import process  # voor fuzzy matching
 
 app = FastAPI()
 
@@ -20,6 +20,75 @@ ketel_model = joblib.load("ketel_model_Vfinal.joblib")
 ketel_vec = joblib.load("ketel_vectorizer_Vfinal.joblib")
 ftf_model = joblib.load("ftf_model_Vfinal.joblib")
 ftf_vec = joblib.load("ftf_vectorizer_Vfinal.joblib")
+
+# Keywoordenlijst met labels 'j' of 'n'
+keywords_labels = {
+    "Flowsensor vervangen": "j",
+    "aansturing ivm 9U": "j",
+    "aansturing Nefit": "j",
+    "aansturing ivm 9P": "j",
+    "lek hydroblok": "j",
+    "defecte KIM": "j",
+    "platenwisselaar vervangen": "j",
+    "Het hydroblok was lek": "j",
+    "RGA beugelen": "n",
+    "RGA gebeugeld": "n",
+    "Druksensor vervangen": "j",
+    "Condensafvoer": "n",
+    "Hoofdprint vervangen": "j",
+    "ontstek pen vv": "j",
+    "thermostaat van de klant is niet goed": "n",
+    "wartel bij de pomp": "j",
+    "Ontsteekpen vervangen": "j",
+    "Condensafvoer herstellen.": "n",
+    "nieuwe afvoer maken": "n",
+    "Expansievat vervangen": "n",
+    "RGA aanpassen": "n",
+    "ltv(Luchttoevoer) vervangen": "n",
+    "verroest van binnen": "j",
+    "Batterijen vervangen": "n",
+    "Wisselaar is lek": "j",
+    "Ketel bij gevuld": "n",
+    "Pomp zat vast": "j",
+    "geen gas toevoer": "n",
+    "Batterij van de koolmonoxide melder": "n",
+    "Vaillant pomp aansluitkabel": "j",
+    "Vaillant druksensor": "j",
+    "thermostaat": "n",
+    "Vulkraan vervangen": "n",
+    "Stekkertje ontsteekkabel": "n",
+    "RGA herstellen": "n",
+    "RGA vervangen en gebeugeld": "n",
+    "LTV (luchttoevoer) gebeugeld": "n",
+    "Warmtewisselaar vervangen": "j",
+    "Sensor flow vervangen": "j",
+    "Sam trechter vervangen": "n",
+    "RGA en LTV + dakdoorvoer aanpassen.": "n",
+    "rookgas vervangen": "n",
+    "Bijgevuld": "n",
+    "druksensor defect": "j",
+    "Alle radiatorkranen dicht": "n",
+    "Gasblok vervangen": "j",
+    "Wasmachinekraan vervangen": "n",
+    "lijkt op print te zijn.": "j",
+    "overstort druppelde": "n",
+    "Overstort en wasmachine kraan": "n",
+    "Overstort vervangen": "n",
+    "Uitgevoerde werkzaamheden:  ketel afgekeurd": "j",
+    "Spoed - Ketel afgekeurd - nog vervangen": "j",
+    "Ketel afgekeurd - nog vervangen": "j",
+    "thermostaat vervangen": "n",
+    "Afuizing badkamer": "n",
+    "Kamerthermostaat vervangen": "n"
+}
+
+def find_keyword_label(text, keywords_dict, threshold=80):
+    if not isinstance(text, str) or text.strip() == "":
+        return None
+    match, score, _ = process.extractOne(text, keywords_dict.keys())
+    if score >= threshold:
+        return keywords_dict[match]
+    return None
 
 @app.post("/process_excel/")
 async def process_excel(file: UploadFile = File(...)):
@@ -60,6 +129,9 @@ async def process_excel(file: UploadFile = File(...)):
     df_prod["contains_reset"] = df_prod["combined_text"].str.contains("reset|herstart", case=False).astype(int)
     df_prod["contains_advies"] = df_prod["combined_text"].str.contains("advies|aanbeveling", case=False).astype(int)
 
+    # Toevoegen keyword label met fuzzy matching
+    df_prod['keyword_label'] = df_prod['combined_text'].apply(lambda x: find_keyword_label(x, keywords_labels))
+
     # Ketel voorspellen
     X_text_k = df_prod["combined_text"]
     X_vec_k = ketel_vec.transform(X_text_k).toarray()
@@ -68,6 +140,13 @@ async def process_excel(file: UploadFile = File(...)):
 
     y_proba_k = ketel_model.predict_proba(X_comb_k)
     y_pred_k = ketel_model.predict(X_comb_k)
+
+    # Override voorspelling met keyword_label als die er is
+    for i, label in enumerate(df_prod['keyword_label']):
+        if label == "j":
+            y_pred_k[i] = 1
+        elif label == "n":
+            y_pred_k[i] = 0
 
     # Vul bestaande kolom 'Ketel gerelateerd'
     df_prod["Ketel gerelateerd"] = np.where(y_proba_k.max(axis=1) > 0.6, np.where(y_pred_k == 1, "j", "n"), "")
