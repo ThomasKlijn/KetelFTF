@@ -7,7 +7,6 @@ from io import BytesIO
 import openpyxl
 from openpyxl.styles import PatternFill
 import uvicorn
-import re
 
 app = FastAPI()
 
@@ -21,83 +20,21 @@ ketel_vec = joblib.load("ketel_vectorizer_Vfinal.joblib")
 ftf_model = joblib.load("ftf_model_Vfinal.joblib")
 ftf_vec = joblib.load("ftf_vectorizer_Vfinal.joblib")
 
-# Keywords lijst met labels (j of n), case-insensitive, incl. losse woorden en woordfouten gefaciliteerd door regex
-keywords_list = [
-    ("flowsensor vervangen", "j"),
-    ("aansturing ivm 9u", "j"),
-    ("aansturing nefit", "j"),
-    ("aansturing ivm 9p", "j"),
-    ("lek hydroblok", "j"),
-    ("defecte kim", "j"),
-    ("platenwisselaar vervangen", "j"),
-    ("het hydroblok was lek", "j"),
-    ("rga beugelen", "n"),
-    ("rga gebeugeld", "n"),
-    ("druksensor vervangen", "j"),
-    ("condensafvoer", "n"),
-    ("hoofdprint vervangen", "j"),
-    ("ontstek pen vv", "j"),
-    ("thermostaat van de klant is niet goed", "n"),
-    ("wartel bij de pomp", "j"),
-    ("ontsteekpen vervangen", "j"),
-    ("condensafvoer herstellen", "n"),
-    ("nieuwe afvoer maken", "n"),
-    ("expansievat vervangen", "n"),
-    ("rga aanpassen", "n"),
-    ("ltv.*luchttoevoer.*", "n"),  # regex voor ltv(Luchttoevoer)
-    ("verroest van binnen", "j"),
-    ("batterijen vervangen", "n"),
-    ("wisselaar is lek", "j"),
-    ("ketel bij gevuld", "n"),
-    ("pomp zat vast", "j"),
-    ("geen gas toevoer", "n"),
-    ("batterij van de koolmonoxide melder", "n"),
-    ("vaillant pomp aansluitkabel", "j"),
-    ("vaillant druksensor", "j"),
-    ("thermostaat", "n"),
-    ("vulkraan vervangen", "n"),
-    ("stekkertje ontsteekkabel", "n"),
-    ("rga herstellen", "n"),
-    ("rga vervangen en gebeugeld", "n"),
-    ("ltv.*luchttoevoer.*gebeugeld", "n"),
-    ("warmtewisselaar vervangen", "j"),
-    ("sensor flow vervangen", "j"),
-    ("sam trechter vervangen", "n"),
-    ("rga en ltv \+ dakdoorvoer aanpassen", "n"),
-    ("rookgas vervangen", "n"),
-    ("bijgevuld", "n"),
-    ("druksensor defect", "j"),
-    ("alle radiatorkranen dicht", "n"),
-    ("gasblok vervangen", "j"),
-    ("wasmachinekraan vervangen", "n"),
-    ("lijkt op print te zijn", "j"),
-    ("overstort druppelde", "n"),
-    ("overstort en wasmachine kraan", "n"),
-    ("overstort vervangen", "n"),
-    ("uitgevoerde werkzaamheden: ketel afgekeurd", "j"),
-    ("spoed - ketel afgekeurd - nog vervangen", "j"),
-    ("ketel afgekeurd - nog vervangen", "j"),
-    ("thermostaat vervangen", "n"),
-    ("afuizing badkamer", "n"),
-    ("kamerthermostaat vervangen", "n")
-]
-
-# Maak een dictionary met regex patterns
-keywords_dict = [(re.compile(k, re.IGNORECASE), v) for k, v in keywords_list]
-
-def find_keyword_label(text: str, keywords) -> str | None:
-    for pattern, label in keywords:
-        if pattern.search(text):
-            return label
-    return None
+# Je keywords dictionary (voorbeeld)
+keywords_dict = {
+    # vul hier je keywords en 'j' of 'n' in, bijvoorbeeld:
+    # "flowsensor vervangen": "j",
+    # "aansturing ivm 9u": "j",
+    # etc...
+}
 
 @app.post("/process_excel/")
 async def process_excel(file: UploadFile = File(...)):
-    # Lees geüpload bestand in memory
     contents = await file.read()
     df_prod = pd.read_excel(BytesIO(contents), sheet_name="Leeg")
 
     alle_kolommen = df_prod.columns.tolist()
+    
     potentiele_oplossingskolommen = ["Oplossingen"] + [col for col in alle_kolommen if col.startswith("Unnamed:")]
     oplossingskolommen = [col for col in potentiele_oplossingskolommen if col in alle_kolommen]
     
@@ -114,8 +51,8 @@ async def process_excel(file: UploadFile = File(...)):
         df_prod["Oplossingen_samengevoegd"] = ""
     
     tekstkolommen.append("Oplossingen_samengevoegd")
-    df_prod[tekstkolommen] = df_prod[tekstkolommen].fillna("")
 
+    df_prod[tekstkolommen] = df_prod[tekstkolommen].fillna("")
     df_prod["combined_text"] = df_prod[tekstkolommen].apply(lambda r: " ".join([str(x) for x in r]), axis=1)
     df_prod["heeft_vervolg"] = df_prod["Werkbon is vervolg van"].apply(lambda x: int(bool(str(x).strip())))
     df_prod["tekstlengte"] = df_prod["combined_text"].apply(len)
@@ -124,29 +61,35 @@ async def process_excel(file: UploadFile = File(...)):
     df_prod["contains_reset"] = df_prod["combined_text"].str.contains("reset|herstart", case=False).astype(int)
     df_prod["contains_advies"] = df_prod["combined_text"].str.contains("advies|aanbeveling", case=False).astype(int)
 
-    # Vul ketel gerelateerd direct op basis van keywords
-    df_prod["Ketel gerelateerd keyword"] = df_prod["combined_text"].apply(lambda x: find_keyword_label(x, keywords_dict))
+    # Voeg keyword detectie toe (case insensitive, eenvoudige match)
+    def detect_keyword(text):
+        text_lower = text.lower()
+        for kw, label in keywords_dict.items():
+            if kw.lower() in text_lower:
+                return label
+        return None
 
-    # Zet de keyword voorspellingen in 'Ketel gerelateerd' en zekerheid 1.0
+    df_prod["Ketel gerelateerd keyword"] = df_prod["combined_text"].apply(detect_keyword)
+
+    # Ketel voorspellen
+    X_text_k = df_prod["combined_text"]
+    X_vec_k = ketel_vec.transform(X_text_k).toarray()
+    extra_k = df_prod[["heeft_vervolg", "tekstlengte", "woordenaantal", "contains_onderdeel", "contains_reset", "contains_advies"]].values
+    X_comb_k = np.hstack((X_vec_k, extra_k))
+
+    y_proba_k = ketel_model.predict_proba(X_comb_k)
+    y_pred_k = ketel_model.predict(X_comb_k)
+
+    # Zorg dat kolom Ketel gerelateerd string is vóór toewijzing
+    df_prod["Ketel gerelateerd"] = df_prod["Ketel gerelateerd"].astype(object)
+
+    # Vul kolom met keywords als aanwezig, anders modeluitkomst
     df_prod.loc[df_prod["Ketel gerelateerd keyword"].notnull(), "Ketel gerelateerd"] = df_prod["Ketel gerelateerd keyword"]
-    df_prod.loc[df_prod["Ketel gerelateerd keyword"].notnull(), "Ketel zekerheid"] = 1.0
+    df_prod.loc[df_prod["Ketel gerelateerd"] == "", "Ketel gerelateerd"] = np.where(y_proba_k.max(axis=1) > 0.6, np.where(y_pred_k == 1, "j", "n"), "")
 
-    # Model voorspellingen alleen voor rijen waar ketel nog leeg is (nog niet door keyword gevuld)
-    mask_model = df_prod["Ketel gerelateerd"].isnull() | (df_prod["Ketel gerelateerd"] == "")
+    df_prod["Ketel zekerheid"] = y_proba_k.max(axis=1)
 
-    if mask_model.any():
-        X_text_k = df_prod.loc[mask_model, "combined_text"]
-        X_vec_k = ketel_vec.transform(X_text_k).toarray()
-        extra_k = df_prod.loc[mask_model, ["heeft_vervolg", "tekstlengte", "woordenaantal", "contains_onderdeel", "contains_reset", "contains_advies"]].values
-        X_comb_k = np.hstack((X_vec_k, extra_k))
-
-        y_proba_k = ketel_model.predict_proba(X_comb_k)
-        y_pred_k = ketel_model.predict(X_comb_k)
-
-        df_prod.loc[mask_model, "Ketel gerelateerd"] = np.where(y_proba_k.max(axis=1) > 0.6, np.where(y_pred_k == 1, "j", "n"), "")
-        df_prod.loc[mask_model, "Ketel zekerheid"] = y_proba_k.max(axis=1)
-
-    # FTF voorspellen zoals voorheen, alleen voor ketel = 'j' en zekerheid > 0.4
+    # FTF voorspellen voor rijen met ketel 'j' en zekerheid > 0.4
     mask_ftf = (df_prod["Ketel gerelateerd"] == "j") & (df_prod["Ketel zekerheid"] > 0.4)
     df_ftf = df_prod[mask_ftf].copy()
 
@@ -158,6 +101,9 @@ async def process_excel(file: UploadFile = File(...)):
     y_proba_f = ftf_model.predict_proba(X_comb_f)
     y_pred_f = ftf_model.predict(X_comb_f)
 
+    # Zorg dat kolom FTF string is vóór toewijzing
+    df_prod["FTF"] = df_prod["FTF"].astype(object)
+
     df_ftf["FTF"] = np.where(y_proba_f.max(axis=1) > 0.7, y_pred_f.astype(str), "")
     df_ftf["FTF zekerheid"] = y_proba_f.max(axis=1)
 
@@ -168,7 +114,6 @@ async def process_excel(file: UploadFile = File(...)):
     wb = openpyxl.Workbook()
     ws = wb.active
 
-    # Schrijf kolomnamen
     for col_idx, col_name in enumerate(df_prod.columns, start=1):
         ws.cell(row=1, column=col_idx, value=col_name)
 
@@ -180,23 +125,17 @@ async def process_excel(file: UploadFile = File(...)):
         for col_idx, col_name in enumerate(df_prod.columns, start=1):
             cell = ws.cell(row=excel_row, column=col_idx, value=row[col_name])
 
-            # Kleur Ketel gerelateerd kolom, geel ook als zekerheid 1 (keyword)
             if col_name == "Ketel gerelateerd":
-                if row.get("Ketel zekerheid", 0) >= 1.0:
+                if row["Ketel zekerheid"] > 0.6 or row["Ketel gerelateerd keyword"] is not None:
                     cell.fill = geel
-                elif row.get("Ketel zekerheid", 0) > 0.6:
-                    cell.fill = geel
-                elif 0.4 <= row.get("Ketel zekerheid", 0) <= 0.6:
+                elif 0.4 <= row["Ketel zekerheid"] <= 0.6:
                     cell.fill = oranje
-
-            # Kleur FTF kolom
             if col_name == "FTF":
                 if row.get("FTF zekerheid", 0) > 0.7:
                     cell.fill = geel
                 elif 0.4 <= row.get("FTF zekerheid", 0) <= 0.7:
                     cell.fill = oranje
 
-    # Output naar bytes buffer
     stream = BytesIO()
     wb.save(stream)
     stream.seek(0)
