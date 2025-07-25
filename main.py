@@ -20,79 +20,71 @@ ketel_vec = joblib.load("ketel_vectorizer_Vfinal.joblib")
 ftf_model = joblib.load("ftf_model_Vfinal.joblib")
 ftf_vec = joblib.load("ftf_vectorizer_Vfinal.joblib")
 
-# Uitgebreide keywordlijst Ketel gerelateerd met context (j of n)
-keyword_kg = {
-    "Flowsensor vervangen": "j",
-    "aansturing ivm 9U": "j",
-    "aansturing Nefit": "j",
-    "aansturing ivm 9P": "j",
+# Keywordlijsten Ketel gerelateerd (lowercase keys voor case-insensitive matching)
+keywords_kg = {
+    "flowsensor vervangen": "j",
+    "aansturing ivm 9u": "j",
+    "aansturing nefit": "j",
+    "aansturing ivm 9p": "j",
     "lek hydroblok": "j",
-    "defecte KIM": "j",
+    "defecte kim": "j",
     "platenwisselaar vervangen": "j",
-    "Het hydroblok was lek": "j",
-    "RGA beugelen": "n",
-    "RGA gebeugeld": "n",
-    "Druksensor vervangen": "j",
-    "Condensafvoer": "n",
-    "Hoofdprint vervangen": "j",
+    "het hydroblok was lek": "j",
+    "rga beugelen": "n",
+    "rga gebeugeld": "n",
+    "druksensor vervangen": "j",
+    "condensafvoer": "n",
+    "hoofdprint vervangen": "j",
     "ontstek pen vv": "j",
     "thermostaat van de klant is niet goed": "n",
     "wartel bij de pomp": "j",
-    "Ontsteekpen vervangen": "j",
-    "Condensafvoer herstellen.": "n",
+    "ontsteekpen vervangen": "j",
+    "condensafvoer herstellen.": "n",
     "nieuwe afvoer maken": "n",
-    "Flowsensor vv": "j",
-    "Sensorflow vervangen": "j",
-    "Sensorflow vv": "j",
-    "Expansievat vervangen": "n",
-    "RGA aanpassen": "n",
-    "ltv(Luchttoevoer) vervangen": "n",
+    "flowsensor vv": "j",
+    "sensorflow vervangen": "j",
+    "sensorflow vv": "j",
+    "expansievat vervangen": "n",
+    "rga aanpassen": "n",
+    "ltv(luchttoevoer) vervangen": "n",
     "verroest van binnen": "j",
-    "Batterijen vervangen": "n",
-    "Wisselaar is lek": "j",
-    "Ketel bij gevuld": "n",
-    "Pomp zat vast": "j",
+    "batterijen vervangen": "n",
+    "wisselaar is lek": "j",
+    "ketel bij gevuld": "n",
+    "pomp zat vast": "j",
     "geen gas toevoer": "n",
-    "Batterij van de koolmonoxide melder": "n",
-    "Vaillant pomp aansluitkabel": "j",
-    "Vaillant druksensor": "j",
+    "batterij van de koolmonoxide melder": "n",
+    "vaillant pomp aansluitkabel": "j",
+    "vaillant druksensor": "j",
     "thermostaat": "n",
-    "Vulkraan vervangen": "n",
-    "Stekkertje ontsteekkabel": "n",
-    "RGA herstellen": "n",
-    "RGA vervangen en gebeugeld": "n",
-    "LTV (luchttoevoer) gebeugeld": "n",
-    "Warmtewisselaar vervangen": "j",
-    "Sensor flow vervangen": "j",
-    "Sam trechter vervangen": "n",
-    "RGA en LTV + dakdoorvoer aanpassen.": "n",
+    "vulkraan vervangen": "n",
+    "stekkertje ontsteekkabel": "n",
+    "rga herstellen": "n",
+    "rga vervangen en gebeugeld": "n",
+    "ltv (luchttoevoer) gebeugeld": "n",
+    "warmtewisselaar vervangen": "j",
+    "sensor flow vervangen": "j",
+    "sam trechter vervangen": "n",
+    "rga en ltv + dakdoorvoer aanpassen.": "n",
     "rookgas vervangen": "n",
-    "Bijgevuld": "n",
+    "bijgevuld": "n",
     "druksensor defect": "j",
-    "Alle radiatorkranen dicht": "n",
-    "Gasblok vervangen": "j",
-    "Wasmachinekraan vervangen": "n",
+    "alle radiatorkranen dicht": "n",
+    "gasblok vervangen": "j",
+    "wasmachinekraan vervangen": "n",
     "lijkt op print te zijn.": "j",
     "overstort druppelde": "n",
-    "Overstort en wasmachine kraan": "n",
-    "Overstort vervangen": "n",
-    "Uitgevoerde werkzaamheden: ketel afgekeurd": "j",
-    "Spoed - Ketel afgekeurd - nog vervangen": "j",
-    "Ketel afgekeurd - nog vervangen": "j",
+    "overstort en wasmachine kraan": "n",
+    "overstort vervangen": "n",
+    "uitgevoerde werkzaamheden: ketel afgekeurd": "j",
+    "spoed - ketel afgekeurd - nog vervangen": "j",
+    "ketel afgekeurd - nog vervangen": "j",
     "thermostaat vervangen": "n",
-    "Afuizing badkamer": "n",
-    "Kamerthermostaat vervangen": "n"
+    "afuizing badkamer": "n",
+    "kamerthermostaat vervangen": "n"
 }
 
-def keyword_based_ketel(text: str):
-    text_lower = text.lower()
-    for key, val in keyword_kg.items():
-        # Exact phrase match, case-insensitive
-        if key.lower() in text_lower:
-            return val
-    return None
-
-# Keywordlijsten voor rule-based FTF filtering
+# Rule-based FTF keywords
 positive_keywords = [
     "vervangen", "gerepareerd", "hersteld", "reset", "opgelost",
     "functioneert", "controle uitgevoerd", "storingscode verwijderd"
@@ -109,6 +101,14 @@ def keyword_based_ftf(text: str):
     if any(k in text_lower for k in negative_keywords):
         return "0"
     return None
+
+def apply_keywords(df, column_text="combined_text", keywords_dict=keywords_kg, target_col="Ketel gerelateerd"):
+    df[target_col + "_keyword"] = np.nan
+    text_lower = df[column_text].str.lower()
+    for kw, val in keywords_dict.items():
+        mask = text_lower.str.contains(kw, na=False)
+        df.loc[mask, target_col + "_keyword"] = val
+    return df
 
 @app.post("/process_excel/")
 async def process_excel(file: UploadFile = File(...)):
@@ -141,13 +141,15 @@ async def process_excel(file: UploadFile = File(...)):
     df_prod["contains_reset"] = df_prod["combined_text"].str.contains("reset|herstart", case=False).astype(int)
     df_prod["contains_advies"] = df_prod["combined_text"].str.contains("advies|aanbeveling", case=False).astype(int)
 
-    # Ketel gerelateerd: eerst keywords checken, anders ML model
-    kg_keywords = df_prod["combined_text"].apply(keyword_based_ketel)
-    mask_kg_keywords = kg_keywords.notnull()
-    df_prod.loc[mask_kg_keywords, "Ketel gerelateerd"] = kg_keywords[mask_kg_keywords]
+    # ---- Keyword matching Ketel gerelateerd ----
+    df_prod = apply_keywords(df_prod)
 
-    # Voor de rest ML voorspellen
-    mask_ml = ~mask_kg_keywords
+    # Vul kolom Ketel gerelateerd vanuit keywords (prioriteit)
+    mask_keyword = df_prod["Ketel gerelateerd_keyword"].notnull()
+    df_prod.loc[mask_keyword, "Ketel gerelateerd"] = df_prod.loc[mask_keyword, "Ketel gerelateerd_keyword"]
+
+    # Model voorspelling Ketel gerelateerd alleen toepassen op rijen zonder keyword invulling
+    mask_ml = df_prod["Ketel gerelateerd"].isnull() | (df_prod["Ketel gerelateerd"] == "")
     if mask_ml.any():
         X_text_k = df_prod.loc[mask_ml, "combined_text"]
         X_vec_k = ketel_vec.transform(X_text_k).toarray()
@@ -159,23 +161,22 @@ async def process_excel(file: UploadFile = File(...)):
 
         df_prod.loc[mask_ml, "Ketel gerelateerd"] = np.where(y_proba_k.max(axis=1) > 0.6, np.where(y_pred_k == 1, "j", "n"), "")
 
-        # Ketel zekerheid toevoegen
+    df_prod["Ketel zekerheid"] = 0
+    if mask_ml.any():
         df_prod.loc[mask_ml, "Ketel zekerheid"] = y_proba_k.max(axis=1)
+    df_prod.loc[mask_keyword, "Ketel zekerheid"] = 1  # Keywords zijn zeker
 
-    # Vul zekerheid voor keyword rows (we kunnen hier 1 zetten, omdat keyword match zeker is)
-    df_prod.loc[mask_kg_keywords, "Ketel zekerheid"] = 1.0
-
-    # FTF voorspellen voor rijen waar Ketel gerelateerd = "j" (zonder zekerheid cutoff)
+    # FTF voorspellen voor rijen waar Ketel gerelateerd = "j"
     mask_ftf = (df_prod["Ketel gerelateerd"] == "j")
     df_ftf = df_prod[mask_ftf].copy()
 
-    # Eerst rule-based FTF toewijzen
+    # Rule-based FTF toewijzen
     df_ftf["FTF_keyword"] = df_ftf["combined_text"].apply(keyword_based_ftf)
 
-    # Rijen zonder rule-based FTF invullen met ML-voorspelling
+    # ML FTF voorspelling voor rijen zonder rule-based FTF
     mask_ml_ftf = df_ftf["FTF_keyword"].isnull()
-    X_text_f = df_ftf.loc[mask_ml_ftf, "combined_text"]
-    if not X_text_f.empty:
+    if mask_ml_ftf.any():
+        X_text_f = df_ftf.loc[mask_ml_ftf, "combined_text"]
         X_vec_f = ftf_vec.transform(X_text_f).toarray()
         extra_f = df_ftf.loc[mask_ml_ftf, ["heeft_vervolg", "tekstlengte", "woordenaantal", "contains_onderdeel", "contains_reset", "contains_advies"]].values
         X_comb_f = np.hstack((X_vec_f, extra_f))
@@ -183,56 +184,36 @@ async def process_excel(file: UploadFile = File(...)):
         y_proba_f = ftf_model.predict_proba(X_comb_f)
         y_pred_f = ftf_model.predict(X_comb_f)
 
-        # Gebruik threshold 0.6 voor FTF=1
         ftf_pred = np.where(y_proba_f.max(axis=1) > 0.6, y_pred_f.astype(str), "0")
-
         df_ftf.loc[mask_ml_ftf, "FTF_keyword"] = ftf_pred
 
-    # Vul FTF kolom met rule-based + ML resultaten
+    # Vul FTF kolom met gecombineerde resultaten, vervang "0" met lege string
     df_prod.loc[df_ftf.index, "FTF"] = df_ftf["FTF_keyword"].replace({"1": "1", "0": "", "": ""})
 
-    # Voeg zekerheid toe voor ML voorspellingen alleen
+    # FTF zekerheid alleen voor ML voorspellingen
     df_ftf["FTF zekerheid"] = 0
-    if not X_text_f.empty:
+    if mask_ml_ftf.any():
         df_ftf.loc[mask_ml_ftf, "FTF zekerheid"] = y_proba_f.max(axis=1)
     df_prod.loc[df_ftf.index, "FTF zekerheid"] = df_ftf["FTF zekerheid"]
 
-    # Kleurcodering in output Excel
+    # Kolommen die niet in output mogen
+    exclude_cols = [
+        "Unnamed: 18", "Unnamed: 19", "Unnamed: 20", "Unnamed: 21", "Unnamed: 22", "Unnamed: 23",
+        "Oplossingen_samengevoegd", "combined_text", "heeft_vervolg", "tekstlengte", "woordenaantal",
+        "contains_onderdeel", "contains_reset", "contains_advies", "Ketel zekerheid", "FTF zekerheid"
+    ]
+
+    # Filter kolommen voor output
+    output_cols = [col for col in df_prod.columns if col not in exclude_cols]
+
+    # Output Excel met kleurcodering
     wb = openpyxl.Workbook()
     ws = wb.active
 
-    for col_idx, col_name in enumerate(df_prod.columns, start=1):
+    for col_idx, col_name in enumerate(output_cols, start=1):
         ws.cell(row=1, column=col_idx, value=col_name)
 
     geel = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
     oranje = PatternFill(start_color="FFA500", end_color="FFA500", fill_type="solid")
 
     for row_idx, row in df_prod.iterrows():
-        excel_row = row_idx + 2
-        for col_idx, col_name in enumerate(df_prod.columns, start=1):
-            cell = ws.cell(row=excel_row, column=col_idx, value=row[col_name])
-
-            # Kleur Ketel gerelateerd geel bij zekerheid > 0.6
-            if col_name == "Ketel gerelateerd":
-                if row.get("Ketel zekerheid", 0) > 0.6:
-                    cell.fill = geel
-
-            # Kleur FTF geel bij FTF=1 (ongeacht zekerheid)
-            if col_name == "FTF":
-                if str(row["FTF"]) == "1":
-                    cell.fill = geel
-                elif 0.4 <= row.get("FTF zekerheid", 0) <= 0.6:
-                    cell.fill = oranje
-
-    stream = BytesIO()
-    wb.save(stream)
-    stream.seek(0)
-
-    return StreamingResponse(
-        stream,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename=voorspeld_{file.filename}"}
-    )
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5000)
