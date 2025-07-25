@@ -20,7 +20,71 @@ ketel_vec = joblib.load("ketel_vectorizer_Vfinal.joblib")
 ftf_model = joblib.load("ftf_model_Vfinal.joblib")
 ftf_vec = joblib.load("ftf_vectorizer_Vfinal.joblib")
 
-# Keywordlijsten voor rule-based FTF filtering
+# Keywordlijsten Ketel gerelateerd (lowercase keys voor case-insensitive matching)
+keywords_kg = {
+    "flowsensor vervangen": "j",
+    "aansturing ivm 9u": "j",
+    "aansturing nefit": "j",
+    "aansturing ivm 9p": "j",
+    "lek hydroblok": "j",
+    "defecte kim": "j",
+    "platenwisselaar vervangen": "j",
+    "het hydroblok was lek": "j",
+    "rga beugelen": "n",
+    "rga gebeugeld": "n",
+    "druksensor vervangen": "j",
+    "condensafvoer": "n",
+    "hoofdprint vervangen": "j",
+    "ontstek pen vv": "j",
+    "thermostaat van de klant is niet goed": "n",
+    "wartel bij de pomp": "j",
+    "ontsteekpen vervangen": "j",
+    "condensafvoer herstellen.": "n",
+    "nieuwe afvoer maken": "n",
+    "flowsensor vv": "j",
+    "sensorflow vervangen": "j",
+    "sensorflow vv": "j",
+    "expansievat vervangen": "n",
+    "rga aanpassen": "n",
+    "ltv(luchttoevoer) vervangen": "n",
+    "verroest van binnen": "j",
+    "batterijen vervangen": "n",
+    "wisselaar is lek": "j",
+    "ketel bij gevuld": "n",
+    "pomp zat vast": "j",
+    "geen gas toevoer": "n",
+    "batterij van de koolmonoxide melder": "n",
+    "vaillant pomp aansluitkabel": "j",
+    "vaillant druksensor": "j",
+    "thermostaat": "n",
+    "vulkraan vervangen": "n",
+    "stekkertje ontsteekkabel": "n",
+    "rga herstellen": "n",
+    "rga vervangen en gebeugeld": "n",
+    "ltv (luchttoevoer) gebeugeld": "n",
+    "warmtewisselaar vervangen": "j",
+    "sensor flow vervangen": "j",
+    "sam trechter vervangen": "n",
+    "rga en ltv + dakdoorvoer aanpassen.": "n",
+    "rookgas vervangen": "n",
+    "bijgevuld": "n",
+    "druksensor defect": "j",
+    "alle radiatorkranen dicht": "n",
+    "gasblok vervangen": "j",
+    "wasmachinekraan vervangen": "n",
+    "lijkt op print te zijn.": "j",
+    "overstort druppelde": "n",
+    "overstort en wasmachine kraan": "n",
+    "overstort vervangen": "n",
+    "uitgevoerde werkzaamheden: ketel afgekeurd": "j",
+    "spoed - ketel afgekeurd - nog vervangen": "j",
+    "ketel afgekeurd - nog vervangen": "j",
+    "thermostaat vervangen": "n",
+    "afuizing badkamer": "n",
+    "kamerthermostaat vervangen": "n"
+}
+
+# Rule-based FTF keywords
 positive_keywords = [
     "vervangen", "gerepareerd", "hersteld", "reset", "opgelost",
     "functioneert", "controle uitgevoerd", "storingscode verwijderd"
@@ -37,6 +101,14 @@ def keyword_based_ftf(text: str):
     if any(k in text_lower for k in negative_keywords):
         return "0"
     return None
+
+def apply_keywords(df, column_text="combined_text", keywords_dict=keywords_kg, target_col="Ketel gerelateerd"):
+    df[target_col + "_keyword"] = np.nan
+    text_lower = df[column_text].str.lower()
+    for kw, val in keywords_dict.items():
+        mask = text_lower.str.contains(kw, na=False)
+        df.loc[mask, target_col + "_keyword"] = val
+    return df
 
 @app.post("/process_excel/")
 async def process_excel(file: UploadFile = File(...)):
@@ -69,54 +141,62 @@ async def process_excel(file: UploadFile = File(...)):
     df_prod["contains_reset"] = df_prod["combined_text"].str.contains("reset|herstart", case=False).astype(int)
     df_prod["contains_advies"] = df_prod["combined_text"].str.contains("advies|aanbeveling", case=False).astype(int)
 
-    # Ketel gerelateerd voorspellen
-    X_text_k = df_prod["combined_text"]
-    X_vec_k = ketel_vec.transform(X_text_k).toarray()
-    extra_k = df_prod[["heeft_vervolg", "tekstlengte", "woordenaantal", "contains_onderdeel", "contains_reset", "contains_advies"]].values
-    X_comb_k = np.hstack((X_vec_k, extra_k))
+    # ---- Keyword matching Ketel gerelateerd ----
+    df_prod = apply_keywords(df_prod)
 
-    y_proba_k = ketel_model.predict_proba(X_comb_k)
-    y_pred_k = ketel_model.predict(X_comb_k)
+    # Vul kolom Ketel gerelateerd vanuit keywords (prioriteit)
+    mask_keyword = df_prod["Ketel gerelateerd_keyword"].notnull()
+    df_prod.loc[mask_keyword, "Ketel gerelateerd"] = df_prod.loc[mask_keyword, "Ketel gerelateerd_keyword"]
 
-    df_prod["Ketel gerelateerd"] = np.where(y_proba_k.max(axis=1) > 0.6, np.where(y_pred_k == 1, "j", "n"), "")
+    # Model voorspelling Ketel gerelateerd alleen toepassen op rijen zonder keyword invulling
+    mask_ml = df_prod["Ketel gerelateerd"].isnull() | (df_prod["Ketel gerelateerd"] == "")
+    if mask_ml.any():
+        X_text_k = df_prod.loc[mask_ml, "combined_text"]
+        X_vec_k = ketel_vec.transform(X_text_k).toarray()
+        extra_k = df_prod.loc[mask_ml, ["heeft_vervolg", "tekstlengte", "woordenaantal", "contains_onderdeel", "contains_reset", "contains_advies"]].values
+        X_comb_k = np.hstack((X_vec_k, extra_k))
 
-    # Ketel zekerheid toevoegen
-    df_prod["Ketel zekerheid"] = y_proba_k.max(axis=1)
+        y_proba_k = ketel_model.predict_proba(X_comb_k)
+        y_pred_k = ketel_model.predict(X_comb_k)
 
-    # FTF voorspellen voor rijen waar Ketel gerelateerd = "j" (zonder zekerheid cutoff)
+        df_prod.loc[mask_ml, "Ketel gerelateerd"] = np.where(y_proba_k.max(axis=1) > 0.6, np.where(y_pred_k == 1, "j", "n"), "")
+
+    df_prod["Ketel zekerheid"] = 0
+    if mask_ml.any():
+        df_prod.loc[mask_ml, "Ketel zekerheid"] = y_proba_k.max(axis=1)
+    df_prod.loc[mask_keyword, "Ketel zekerheid"] = 1  # Keywords zijn zeker
+
+    # FTF voorspellen voor rijen waar Ketel gerelateerd = "j"
     mask_ftf = (df_prod["Ketel gerelateerd"] == "j")
     df_ftf = df_prod[mask_ftf].copy()
 
-    # Eerst rule-based FTF toewijzen
+    # Rule-based FTF toewijzen
     df_ftf["FTF_keyword"] = df_ftf["combined_text"].apply(keyword_based_ftf)
 
-    # Rijen zonder rule-based FTF invullen met ML-voorspelling
-    mask_ml = df_ftf["FTF_keyword"].isnull()
-    X_text_f = df_ftf.loc[mask_ml, "combined_text"]
-    if not X_text_f.empty:
+    # ML FTF voorspelling voor rijen zonder rule-based FTF
+    mask_ml_ftf = df_ftf["FTF_keyword"].isnull()
+    if mask_ml_ftf.any():
+        X_text_f = df_ftf.loc[mask_ml_ftf, "combined_text"]
         X_vec_f = ftf_vec.transform(X_text_f).toarray()
-        extra_f = df_ftf.loc[mask_ml, ["heeft_vervolg", "tekstlengte", "woordenaantal", "contains_onderdeel", "contains_reset", "contains_advies"]].values
+        extra_f = df_ftf.loc[mask_ml_ftf, ["heeft_vervolg", "tekstlengte", "woordenaantal", "contains_onderdeel", "contains_reset", "contains_advies"]].values
         X_comb_f = np.hstack((X_vec_f, extra_f))
 
         y_proba_f = ftf_model.predict_proba(X_comb_f)
         y_pred_f = ftf_model.predict(X_comb_f)
 
-        # Gebruik threshold 0.6 voor FTF=1
         ftf_pred = np.where(y_proba_f.max(axis=1) > 0.6, y_pred_f.astype(str), "0")
+        df_ftf.loc[mask_ml_ftf, "FTF_keyword"] = ftf_pred
 
-        df_ftf.loc[mask_ml, "FTF_keyword"] = ftf_pred
-
-    # Vul FTF kolom met rule-based + ML resultaten
+    # Vul FTF kolom met gecombineerde resultaten, vervang "0" met lege string
     df_prod.loc[df_ftf.index, "FTF"] = df_ftf["FTF_keyword"].replace({"1": "1", "0": "", "": ""})
 
-    # Voeg zekerheid toe voor ML voorspellingen alleen
-    # Voor eenvoud houden we nu zekerheid alleen als 1 of leeg, want rule-based zekerheid is 1
+    # FTF zekerheid alleen voor ML voorspellingen
     df_ftf["FTF zekerheid"] = 0
-    if not X_text_f.empty:
-        df_ftf.loc[mask_ml, "FTF zekerheid"] = y_proba_f.max(axis=1)
+    if mask_ml_ftf.any():
+        df_ftf.loc[mask_ml_ftf, "FTF zekerheid"] = y_proba_f.max(axis=1)
     df_prod.loc[df_ftf.index, "FTF zekerheid"] = df_ftf["FTF zekerheid"]
 
-    # Kleurcodering in output Excel
+    # Output Excel met kleurcodering
     wb = openpyxl.Workbook()
     ws = wb.active
 
