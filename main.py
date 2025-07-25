@@ -90,7 +90,7 @@ positive_keywords = [
     "functioneert", "controle uitgevoerd", "storingscode verwijderd"
 ]
 negative_keywords = [
-    "afspraak", "moet worden nagekeken", "onderdeel besteld", 
+    "afspraak", "moet worden nagekeken", "onderdeel besteld",
     "kan niet oplossen", "opvolging", "storingscode blijft", "niet gelukt"
 ]
 
@@ -118,7 +118,7 @@ async def process_excel(file: UploadFile = File(...)):
     alle_kolommen = df_prod.columns.tolist()
     potentiele_oplossingskolommen = ["Oplossingen"] + [col for col in alle_kolommen if col.startswith("Unnamed:")]
     oplossingskolommen = [col for col in potentiele_oplossingskolommen if col in alle_kolommen]
-    
+
     basis_tekstkolommen = [
         "Werkbeschrijving", "Werkbon is vervolg van",
         "Werkbon nummer", "Uitvoerdatum", "Object referentie", "Installatie apparaat omschrijving"
@@ -196,14 +196,13 @@ async def process_excel(file: UploadFile = File(...)):
         df_ftf.loc[mask_ml_ftf, "FTF zekerheid"] = y_proba_f.max(axis=1)
     df_prod.loc[df_ftf.index, "FTF zekerheid"] = df_ftf["FTF zekerheid"]
 
-    # Kolommen die niet in output mogen
+    # Kolommen die NIET in output mogen
     exclude_cols = [
         "Unnamed: 18", "Unnamed: 19", "Unnamed: 20", "Unnamed: 21", "Unnamed: 22", "Unnamed: 23",
         "Oplossingen_samengevoegd", "combined_text", "heeft_vervolg", "tekstlengte", "woordenaantal",
         "contains_onderdeel", "contains_reset", "contains_advies", "Ketel zekerheid", "FTF zekerheid"
     ]
 
-    # Filter kolommen voor output
     output_cols = [col for col in df_prod.columns if col not in exclude_cols]
 
     # Output Excel met kleurcodering
@@ -217,3 +216,33 @@ async def process_excel(file: UploadFile = File(...)):
     oranje = PatternFill(start_color="FFA500", end_color="FFA500", fill_type="solid")
 
     for row_idx, row in df_prod.iterrows():
+        excel_row = row_idx + 2
+        for col_idx, col_name in enumerate(output_cols, start=1):
+            cell = ws.cell(row=excel_row, column=col_idx, value=row[col_name])
+
+            # Kleur Ketel gerelateerd geel bij zekerheid >= 0.6
+            if col_name == "Ketel gerelateerd":
+                if row["Ketel zekerheid"] >= 0.6:
+                    cell.fill = geel
+                elif 0 < row["Ketel zekerheid"] < 0.6:
+                    cell.fill = oranje
+
+            # Kleur FTF geel bij FTF=1 en zekerheid >= 0.6, oranje bij zekerheid < 0.6 en > 0
+            if col_name == "FTF":
+                if str(row["FTF"]) == "1" and row.get("FTF zekerheid", 0) >= 0.6:
+                    cell.fill = geel
+                elif 0 < row.get("FTF zekerheid", 0) < 0.6:
+                    cell.fill = oranje
+
+    stream = BytesIO()
+    wb.save(stream)
+    stream.seek(0)
+
+    return StreamingResponse(
+        stream,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=voorspeld_{file.filename}"}
+    )
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=5000)
