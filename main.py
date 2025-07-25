@@ -53,6 +53,7 @@ keywords_kg = {
     "ketel bij gevuld": "n",
     "pomp zat vast": "j",
     "geen gas toevoer": "n",
+    "warmtewisselaar": "j",
     "batterij van de koolmonoxide melder": "n",
     "vaillant pomp aansluitkabel": "j",
     "vaillant druksensor": "j",
