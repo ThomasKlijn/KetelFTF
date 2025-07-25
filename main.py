@@ -46,6 +46,7 @@ keywords_kg = {
     "sensorflow vv": "j",
     "expansievat vervangen": "n",
     "rga aanpassen": "n",
+    "warmtewisselaar": "n",
     "ltv(luchttoevoer) vervangen": "n",
     "verroest van binnen": "j",
     "batterijen vervangen": "n",
@@ -53,7 +54,6 @@ keywords_kg = {
     "ketel bij gevuld": "n",
     "pomp zat vast": "j",
     "geen gas toevoer": "n",
-    "warmtewisselaar": "j",
     "batterij van de koolmonoxide melder": "n",
     "vaillant pomp aansluitkabel": "j",
     "vaillant druksensor": "j",
@@ -91,7 +91,7 @@ positive_keywords = [
     "functioneert", "controle uitgevoerd", "storingscode verwijderd"
 ]
 negative_keywords = [
-    "afspraak", "moet worden nagekeken", "onderdeel besteld",
+    "afspraak", "moet worden nagekeken", "onderdeel besteld", 
     "kan niet oplossen", "opvolging", "storingscode blijft", "niet gelukt"
 ]
 
@@ -119,7 +119,7 @@ async def process_excel(file: UploadFile = File(...)):
     alle_kolommen = df_prod.columns.tolist()
     potentiele_oplossingskolommen = ["Oplossingen"] + [col for col in alle_kolommen if col.startswith("Unnamed:")]
     oplossingskolommen = [col for col in potentiele_oplossingskolommen if col in alle_kolommen]
-
+    
     basis_tekstkolommen = [
         "Werkbeschrijving", "Werkbon is vervolg van",
         "Werkbon nummer", "Uitvoerdatum", "Object referentie", "Installatie apparaat omschrijving"
@@ -201,16 +201,31 @@ async def process_excel(file: UploadFile = File(...)):
     exclude_cols = [
         "Unnamed: 18", "Unnamed: 19", "Unnamed: 20", "Unnamed: 21", "Unnamed: 22", "Unnamed: 23",
         "Oplossingen_samengevoegd", "combined_text", "heeft_vervolg", "tekstlengte", "woordenaantal",
-        "contains_onderdeel", "contains_reset", "contains_advies", "Ketel zekerheid", "FTF zekerheid"
+        "contains_onderdeel", "contains_reset", "contains_advies", "Ketel zekerheid", "FTF zekerheid",
+        "Ketel gerelateerd_keyword"
     ]
 
     output_cols = [col for col in df_prod.columns if col not in exclude_cols]
+
+    # Kolommen die wél in output blijven maar zonder kolomnaam in Excel
+    cols_with_empty_name = [
+        "Werkbon is vervolg van", "Werkbon nummer", "Uitvoerdatum", "Object referentie",
+        "Installatie apparaat omschrijving"
+    ]
+
+    output_col_names = []
+    for col in output_cols:
+        if col in cols_with_empty_name:
+            output_col_names.append("")
+        else:
+            output_col_names.append(col)
 
     # Output Excel met kleurcodering
     wb = openpyxl.Workbook()
     ws = wb.active
 
-    for col_idx, col_name in enumerate(output_cols, start=1):
+    # Schrijf header (kolomnamen)
+    for col_idx, col_name in enumerate(output_col_names, start=1):
         ws.cell(row=1, column=col_idx, value=col_name)
 
     geel = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
@@ -221,19 +236,23 @@ async def process_excel(file: UploadFile = File(...)):
         for col_idx, col_name in enumerate(output_cols, start=1):
             cell = ws.cell(row=excel_row, column=col_idx, value=row[col_name])
 
-            # Kleur Ketel gerelateerd geel bij zekerheid >= 0.6
+            # Kleur Ketel gerelateerd geel bij zekerheid >= 0.6, oranje bij 0 < zekerheid < 0.6
             if col_name == "Ketel gerelateerd":
                 if row["Ketel zekerheid"] >= 0.6:
                     cell.fill = geel
                 elif 0 < row["Ketel zekerheid"] < 0.6:
                     cell.fill = oranje
 
-            # Kleur FTF geel bij FTF=1 en zekerheid >= 0.6, oranje bij zekerheid < 0.6 en > 0
+            # Kleur FTF geel bij FTF=1 en zekerheid >= 0.6, oranje bij zekerheid tussen 0 en 0.6
             if col_name == "FTF":
-                if str(row["FTF"]) == "1" and row.get("FTF zekerheid", 0) >= 0.6:
+                ftf_certainty = row.get("FTF zekerheid", 0)
+                if str(row["FTF"]) == "1" and ftf_certainty >= 0.6:
                     cell.fill = geel
-                elif 0 < row.get("FTF zekerheid", 0) < 0.6:
+                elif 0 < ftf_certainty < 0.6:
                     cell.fill = oranje
+                else:
+                    # Wit (geen kleur)
+                    pass
 
     stream = BytesIO()
     wb.save(stream)
