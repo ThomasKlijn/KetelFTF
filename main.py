@@ -14,42 +14,52 @@ app = FastAPI()
 async def read_root():
     return FileResponse("index.html")
 
-# Modellen en vectorizers laden (zorg dat ze in je project staan)
+# Modellen en vectorizers laden
 ketel_model = joblib.load("ketel_model_Vfinal.joblib")
 ketel_vec = joblib.load("ketel_vectorizer_Vfinal.joblib")
 ftf_model = joblib.load("ftf_model_Vfinal.joblib")
 ftf_vec = joblib.load("ftf_vectorizer_Vfinal.joblib")
 
+# Keywordlijsten voor rule-based FTF filtering
+positive_keywords = [
+    "vervangen", "gerepareerd", "hersteld", "reset", "opgelost",
+    "functioneert", "controle uitgevoerd", "storingscode verwijderd"
+]
+negative_keywords = [
+    "afspraak", "moet worden nagekeken", "onderdeel besteld", 
+    "kan niet oplossen", "opvolging", "storingscode blijft", "niet gelukt"
+]
+
+def keyword_based_ftf(text: str):
+    text_lower = text.lower()
+    if any(k in text_lower for k in positive_keywords):
+        return "1"
+    if any(k in text_lower for k in negative_keywords):
+        return "0"
+    return None
+
 @app.post("/process_excel/")
 async def process_excel(file: UploadFile = File(...)):
-    # Lees geüpload bestand in memory
     contents = await file.read()
     df_prod = pd.read_excel(BytesIO(contents), sheet_name="Leeg")
 
-    # Dynamisch bepalen welke kolommen er zijn
     alle_kolommen = df_prod.columns.tolist()
-    
-    # Zoek naar oplossingskolommen die daadwerkelijk bestaan
     potentiele_oplossingskolommen = ["Oplossingen"] + [col for col in alle_kolommen if col.startswith("Unnamed:")]
     oplossingskolommen = [col for col in potentiele_oplossingskolommen if col in alle_kolommen]
     
-    # Basis tekstkolommen die meestal bestaan
     basis_tekstkolommen = [
         "Werkbeschrijving", "Werkbon is vervolg van",
         "Werkbon nummer", "Uitvoerdatum", "Object referentie", "Installatie apparaat omschrijving"
     ]
     tekstkolommen = [col for col in basis_tekstkolommen if col in alle_kolommen]
 
-    # Vul oplossingen kolommen leeg met lege strings
     if oplossingskolommen:
         df_prod[oplossingskolommen] = df_prod[oplossingskolommen].fillna("")
         df_prod["Oplossingen_samengevoegd"] = df_prod[oplossingskolommen].astype(str).agg(" ".join, axis=1)
     else:
         df_prod["Oplossingen_samengevoegd"] = ""
-    
-    # Voeg Oplossingen_samengevoegd toe aan tekstkolommen
-    tekstkolommen.append("Oplossingen_samengevoegd")
 
+    tekstkolommen.append("Oplossingen_samengevoegd")
     df_prod[tekstkolommen] = df_prod[tekstkolommen].fillna("")
     df_prod["combined_text"] = df_prod[tekstkolommen].apply(lambda r: " ".join([str(x) for x in r]), axis=1)
     df_prod["heeft_vervolg"] = df_prod["Werkbon is vervolg van"].apply(lambda x: int(bool(str(x).strip())))
@@ -59,7 +69,7 @@ async def process_excel(file: UploadFile = File(...)):
     df_prod["contains_reset"] = df_prod["combined_text"].str.contains("reset|herstart", case=False).astype(int)
     df_prod["contains_advies"] = df_prod["combined_text"].str.contains("advies|aanbeveling", case=False).astype(int)
 
-    # Ketel voorspellen
+    # Ketel gerelateerd voorspellen
     X_text_k = df_prod["combined_text"]
     X_vec_k = ketel_vec.transform(X_text_k).toarray()
     extra_k = df_prod[["heeft_vervolg", "tekstlengte", "woordenaantal", "contains_onderdeel", "contains_reset", "contains_advies"]].values
@@ -68,40 +78,48 @@ async def process_excel(file: UploadFile = File(...)):
     y_proba_k = ketel_model.predict_proba(X_comb_k)
     y_pred_k = ketel_model.predict(X_comb_k)
 
-    # Vul bestaande kolom 'Ketel gerelateerd'
     df_prod["Ketel gerelateerd"] = np.where(y_proba_k.max(axis=1) > 0.6, np.where(y_pred_k == 1, "j", "n"), "")
 
-    # Voeg zekerheid toe
+    # Ketel zekerheid toevoegen
     df_prod["Ketel zekerheid"] = y_proba_k.max(axis=1)
 
-    # FTF voorspellen waar ketel 'j' is (zonder extra zekerheid filter)
+    # FTF voorspellen voor rijen waar Ketel gerelateerd = "j" (zonder zekerheid cutoff)
     mask_ftf = (df_prod["Ketel gerelateerd"] == "j")
     df_ftf = df_prod[mask_ftf].copy()
 
-    X_text_f = df_ftf["combined_text"]
-    X_vec_f = ftf_vec.transform(X_text_f).toarray()
-    extra_f = df_ftf[["heeft_vervolg", "tekstlengte", "woordenaantal", "contains_onderdeel", "contains_reset", "contains_advies"]].values
-    X_comb_f = np.hstack((X_vec_f, extra_f))
+    # Eerst rule-based FTF toewijzen
+    df_ftf["FTF_keyword"] = df_ftf["combined_text"].apply(keyword_based_ftf)
 
-    y_proba_f = ftf_model.predict_proba(X_comb_f)
-    y_pred_f = ftf_model.predict(X_comb_f)
+    # Rijen zonder rule-based FTF invullen met ML-voorspelling
+    mask_ml = df_ftf["FTF_keyword"].isnull()
+    X_text_f = df_ftf.loc[mask_ml, "combined_text"]
+    if not X_text_f.empty:
+        X_vec_f = ftf_vec.transform(X_text_f).toarray()
+        extra_f = df_ftf.loc[mask_ml, ["heeft_vervolg", "tekstlengte", "woordenaantal", "contains_onderdeel", "contains_reset", "contains_advies"]].values
+        X_comb_f = np.hstack((X_vec_f, extra_f))
 
-    # Eerst 'j'/'n' als output, met predictiedrempel 0.6
-    df_ftf["FTF"] = np.where(y_proba_f.max(axis=1) > 0.6, np.where(y_pred_f == 1, "j", "n"), "")
-    df_ftf["FTF zekerheid"] = y_proba_f.max(axis=1)
+        y_proba_f = ftf_model.predict_proba(X_comb_f)
+        y_pred_f = ftf_model.predict(X_comb_f)
 
-    df_prod["FTF"] = df_prod["FTF"].astype(object)
-    df_prod.loc[df_ftf.index, "FTF"] = df_ftf["FTF"]
+        # Gebruik threshold 0.6 voor FTF=1
+        ftf_pred = np.where(y_proba_f.max(axis=1) > 0.6, y_pred_f.astype(str), "0")
+
+        df_ftf.loc[mask_ml, "FTF_keyword"] = ftf_pred
+
+    # Vul FTF kolom met rule-based + ML resultaten
+    df_prod.loc[df_ftf.index, "FTF"] = df_ftf["FTF_keyword"].replace({"1": "1", "0": "", "": ""})
+
+    # Voeg zekerheid toe voor ML voorspellingen alleen
+    # Voor eenvoud houden we nu zekerheid alleen als 1 of leeg, want rule-based zekerheid is 1
+    df_ftf["FTF zekerheid"] = 0
+    if not X_text_f.empty:
+        df_ftf.loc[mask_ml, "FTF zekerheid"] = y_proba_f.max(axis=1)
     df_prod.loc[df_ftf.index, "FTF zekerheid"] = df_ftf["FTF zekerheid"]
-
-    # Zet 'j' om naar '1', 'n' naar lege string voor output
-    df_prod["FTF"] = df_prod["FTF"].replace({"j": "1", "n": ""})
 
     # Kleurcodering in output Excel
     wb = openpyxl.Workbook()
     ws = wb.active
 
-    # Schrijf kolomnamen
     for col_idx, col_name in enumerate(df_prod.columns, start=1):
         ws.cell(row=1, column=col_idx, value=col_name)
 
@@ -113,20 +131,18 @@ async def process_excel(file: UploadFile = File(...)):
         for col_idx, col_name in enumerate(df_prod.columns, start=1):
             cell = ws.cell(row=excel_row, column=col_idx, value=row[col_name])
 
-            # Kleur Ketel gerelateerd kolom
+            # Kleur Ketel gerelateerd geel bij zekerheid > 0.6
             if col_name == "Ketel gerelateerd":
                 if row["Ketel zekerheid"] > 0.6:
                     cell.fill = geel
-                elif 0.4 <= row["Ketel zekerheid"] <= 0.6:
-                    cell.fill = oranje
-            # Kleur FTF kolom
+
+            # Kleur FTF geel bij FTF=1 (ongeacht zekerheid)
             if col_name == "FTF":
-                if row["FTF zekerheid"] > 0.6:
+                if str(row["FTF"]) == "1":
                     cell.fill = geel
-                elif 0.4 <= row["FTF zekerheid"] <= 0.6:
+                elif 0.4 <= row.get("FTF zekerheid", 0) <= 0.6:
                     cell.fill = oranje
 
-    # Output naar bytes buffer
     stream = BytesIO()
     wb.save(stream)
     stream.seek(0)
