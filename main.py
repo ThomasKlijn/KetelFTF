@@ -36,6 +36,14 @@ keywords_kg = {
     "druksensor vervangen": "j",
     "condensafvoer": "n",
     "hoofdprint vervangen": "j",
+    "driewegklep": "j",
+    "drie weg klep": "j",
+    "3wegklep": "j",
+    "3weg klep": "j",
+    "wisselaar": "j",
+    "stromingssensor": "j",
+    "hoofdprint": "j",
+    "drieweg klep": "j",
     "ontstek pen vv": "j",
     "thermostaat van de klant is niet goed": "n",
     "wartel bij de pomp": "j",
@@ -48,6 +56,9 @@ keywords_kg = {
     "flowsensor vv": "j",
     "sensorflow vervangen": "j",
     "sensorflow vv": "j",
+    "expansievat": "n",
+    "vloerverwarming": "n",
+    "slang op verdeler": "n",
     "expansievat vervangen": "n",
     "rga aanpassen": "n",
     "warmtewisselaar": "j",
@@ -180,7 +191,7 @@ async def process_excel(file: UploadFile = File(...)):
         y_proba_k = ketel_model.predict_proba(X_comb_k)
         y_pred_k = ketel_model.predict(X_comb_k)
 
-        df_prod.loc[mask_ml, "Ketel gerelateerd"] = np.where(y_proba_k.max(axis=1) > 0.6, np.where(y_pred_k == 1, "j", "n"), "")
+        df_prod.loc[mask_ml, "Ketel gerelateerd"] = np.where(y_proba_k.max(axis=1) > 0.7, np.where(y_pred_k == 1, "j", "n"), "")
 
     df_prod["Ketel zekerheid"] = 0
     if mask_ml.any():
