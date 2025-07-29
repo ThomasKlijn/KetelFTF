@@ -269,9 +269,9 @@ async def process_excel(file: UploadFile = File(...)):
 
             # Kleur Ketel gerelateerd geel bij zekerheid >= 0.6, oranje bij 0 < zekerheid < 0.6
             if col_name == "Ketel gerelateerd":
-                if row["Ketel zekerheid"] >= 0.6:
+                if row["Ketel zekerheid"] >= 0.7:
                     cell.fill = geel
-                elif 0 < row["Ketel zekerheid"] < 0.6:
+                elif 0 < row["Ketel zekerheid"] < 0.7:
                     cell.fill = oranje
 
             # Kleur FTF geel bij FTF=1 en zekerheid >= 0.6, oranje bij zekerheid tussen 0 en 0.6
