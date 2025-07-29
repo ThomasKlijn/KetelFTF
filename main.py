@@ -41,7 +41,7 @@ keywords_kg = {
     "wartel bij de pomp": "j",
     "ontsteekpen vervangen": "j",
     "pomp vervangen": "j",
-    "Ketel vervangen": "j",
+    "ketel vervangen": "j",
     "pomp": "j",
     "condensafvoer herstellen.": "n",
     "nieuwe afvoer maken": "n",
@@ -115,12 +115,19 @@ def keyword_based_ftf(text: str):
         return "0"
     return None
 
-def apply_keywords(df, column_text="combined_text", keywords_dict=keywords_kg, target_col="Ketel gerelateerd"):
-    df[target_col + "_keyword"] = np.nan
-    text_lower = df[column_text].str.lower()
-    for kw, val in keywords_dict.items():
-        mask = text_lower.str.contains(kw, na=False)
-        df.loc[mask, target_col + "_keyword"] = val
+def apply_keywords_per_column(df, keywords_dict, columns):
+    df["Ketel gerelateerd_keyword"] = np.nan
+    for col in columns:
+        text_lower = df[col].fillna("").str.lower()
+        for kw, val in keywords_dict.items():
+            # Zet regex=False om waarschuwing te vermijden
+            mask = text_lower.str.contains(kw, na=False, regex=False)
+            if val == "j":
+                # Zet 'j' altijd
+                df.loc[mask, "Ketel gerelateerd_keyword"] = "j"
+            else:
+                # Alleen zet 'n' als nog geen 'j' aanwezig is
+                df.loc[mask & df["Ketel gerelateerd_keyword"].isna(), "Ketel gerelateerd_keyword"] = "n"
     return df
 
 @app.post("/process_excel/")
@@ -154,8 +161,9 @@ async def process_excel(file: UploadFile = File(...)):
     df_prod["contains_reset"] = df_prod["combined_text"].str.contains("reset|herstart", case=False).astype(int)
     df_prod["contains_advies"] = df_prod["combined_text"].str.contains("advies|aanbeveling", case=False).astype(int)
 
-    # ---- Keyword matching Ketel gerelateerd ----
-    df_prod = apply_keywords(df_prod)
+    # ---- Keyword matching Ketel gerelateerd, per kolom met prioriteit ----
+    keyword_check_columns = ["Werkbeschrijving", "Oplossingen_samengevoegd"]
+    df_prod = apply_keywords_per_column(df_prod, keywords_kg, keyword_check_columns)
 
     # Vul kolom Ketel gerelateerd vanuit keywords (prioriteit)
     mask_keyword = df_prod["Ketel gerelateerd_keyword"].notnull()
@@ -262,9 +270,6 @@ async def process_excel(file: UploadFile = File(...)):
                     cell.fill = geel
                 elif 0 < ftf_certainty < 0.6:
                     cell.fill = oranje
-                else:
-                    # Wit (geen kleur)
-                    pass
 
     stream = BytesIO()
     wb.save(stream)
