@@ -1,15 +1,76 @@
 <!DOCTYPE html>
 <html lang="nl">
 <head>
-    <meta charset="UTF-8" />
-    <title>FTF Model Upload</title>
+  <meta charset="UTF-8" />
+  <title>Ketel & FTF verwerking</title>
 </head>
 <body>
-    <h1>Upload Excel bestand</h1>
-    <form action="/process_excel/" method="post" enctype="multipart/form-data">
-        <input type="file" name="file" accept=".xlsx" required />
-        <button type="submit">Verwerk</button>
-    </form>
+  <h1>Upload bestand voor voorspelling</h1>
+  <input type="file" id="fileInput1" />
+  <button onclick="uploadFile1()">Verwerk bestand</button>
+  
+  <h1>Upload outputbestand om te splitsen</h1>
+  <input type="file" id="fileInput2" />
+  <button onclick="uploadFile2()">Split outputbestand</button>
+  
+  <script>
+    async function uploadFile1() {
+      const fileInput = document.getElementById('fileInput1');
+      if (!fileInput.files.length) {
+        alert("Selecteer een bestand.");
+        return;
+      }
+      const file = fileInput.files[0];
+      const formData = new FormData();
+      formData.append('file', file);
 
+      const response = await fetch('/process_excel/', {
+        method: 'POST',
+        body: formData
+      });
+      if (!response.ok) {
+        alert("Fout bij uploaden/verwerken bestand.");
+        return;
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'voorspeld_' + file.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    }
+
+    async function uploadFile2() {
+      const fileInput = document.getElementById('fileInput2');
+      if (!fileInput.files.length) {
+        alert("Selecteer een bestand.");
+        return;
+      }
+      const file = fileInput.files[0];
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/split_output/', {
+        method: 'POST',
+        body: formData
+      });
+      if (!response.ok) {
+        alert("Fout bij splitten bestand.");
+        return;
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'gesplitst_' + file.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    }
+  </script>
 </body>
 </html>
