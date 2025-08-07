@@ -20,7 +20,7 @@ ketel_vec = joblib.load("ketel_vectorizer_Vfinal.joblib")
 ftf_model = joblib.load("ftf_model_Vfinal.joblib")
 ftf_vec = joblib.load("ftf_vectorizer_Vfinal.joblib")
 
-# Keywordlijsten Ketel gerelateerd (lowercase keys voor case-insensitive matching)
+# Keywordlijsten Ketel gerelateerd (lowercase keys)
 keywords_kg = {
     "flowsensor vervangen": "j",
     "aansturing ivm 9u": "j",
@@ -125,7 +125,7 @@ positive_keywords = [
     "functioneert", "controle uitgevoerd", "storingscode verwijderd"
 ]
 negative_keywords = [
-    "afspraak", "moet worden nagekeken", "onderdeel besteld", 
+    "afspraak", "moet worden nagekeken", "onderdeel besteld",
     "kan niet oplossen", "opvolging", "storingscode blijft", "niet gelukt"
 ]
 
@@ -145,10 +145,10 @@ def apply_keywords_per_column(df, keywords_dict, columns):
             # Zet regex=False om waarschuwing te vermijden
             mask = text_lower.str.contains(kw, na=False, regex=False)
             if val == "j":
-                # Zet 'j' altijd
+                # Zet 'j' altijd als gevonden
                 df.loc[mask, "Ketel gerelateerd_keyword"] = "j"
             else:
-                # Alleen zet 'n' als nog geen 'j' aanwezig is
+                # Zet 'n' alleen als er nog geen 'j' staat
                 df.loc[mask & df["Ketel gerelateerd_keyword"].isna(), "Ketel gerelateerd_keyword"] = "n"
     return df
 
@@ -160,7 +160,7 @@ async def process_excel(file: UploadFile = File(...)):
     alle_kolommen = df_prod.columns.tolist()
     potentiele_oplossingskolommen = ["Oplossingen"] + [col for col in alle_kolommen if col.startswith("Unnamed:")]
     oplossingskolommen = [col for col in potentiele_oplossingskolommen if col in alle_kolommen]
-    
+
     basis_tekstkolommen = [
         "Werkbeschrijving", "Werkbon is vervolg van",
         "Werkbon nummer", "Uitvoerdatum", "Object referentie", "Installatie apparaat omschrijving"
@@ -278,7 +278,7 @@ async def process_excel(file: UploadFile = File(...)):
         for col_idx, col_name in enumerate(output_cols, start=1):
             cell = ws.cell(row=excel_row, column=col_idx, value=row[col_name])
 
-            # Kleur Ketel gerelateerd geel bij zekerheid >= 0.6, oranje bij 0 < zekerheid < 0.6
+            # Kleur Ketel gerelateerd geel bij zekerheid >= 0.7, oranje bij 0 < zekerheid < 0.7
             if col_name == "Ketel gerelateerd":
                 if row["Ketel zekerheid"] >= 0.7:
                     cell.fill = geel
