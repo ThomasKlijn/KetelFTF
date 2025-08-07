@@ -20,7 +20,7 @@ ketel_vec = joblib.load("ketel_vectorizer_Vfinal.joblib")
 ftf_model = joblib.load("ftf_model_Vfinal.joblib")
 ftf_vec = joblib.load("ftf_vectorizer_Vfinal.joblib")
 
-# Keywordlijsten Ketel gerelateerd (lowercase keys)
+# Keywordlijsten Ketel gerelateerd (lowercase keys voor case-insensitive matching)
 keywords_kg = {
     "flowsensor vervangen": "j",
     "aansturing ivm 9u": "j",
@@ -125,7 +125,7 @@ positive_keywords = [
     "functioneert", "controle uitgevoerd", "storingscode verwijderd"
 ]
 negative_keywords = [
-    "afspraak", "moet worden nagekeken", "onderdeel besteld",
+    "afspraak", "moet worden nagekeken", "onderdeel besteld", 
     "kan niet oplossen", "opvolging", "storingscode blijft", "niet gelukt"
 ]
 
@@ -139,16 +139,14 @@ def keyword_based_ftf(text: str):
 
 def apply_keywords_per_column(df, keywords_dict, columns):
     df["Ketel gerelateerd_keyword"] = np.nan
+    df["Ketel gerelateerd_keyword"] = df["Ketel gerelateerd_keyword"].astype(object)  # fix dtype warning
     for col in columns:
         text_lower = df[col].fillna("").str.lower()
         for kw, val in keywords_dict.items():
-            # Zet regex=False om waarschuwing te vermijden
             mask = text_lower.str.contains(kw, na=False, regex=False)
             if val == "j":
-                # Zet 'j' altijd als gevonden
                 df.loc[mask, "Ketel gerelateerd_keyword"] = "j"
             else:
-                # Zet 'n' alleen als er nog geen 'j' staat
                 df.loc[mask & df["Ketel gerelateerd_keyword"].isna(), "Ketel gerelateerd_keyword"] = "n"
     return df
 
@@ -160,7 +158,7 @@ async def process_excel(file: UploadFile = File(...)):
     alle_kolommen = df_prod.columns.tolist()
     potentiele_oplossingskolommen = ["Oplossingen"] + [col for col in alle_kolommen if col.startswith("Unnamed:")]
     oplossingskolommen = [col for col in potentiele_oplossingskolommen if col in alle_kolommen]
-
+    
     basis_tekstkolommen = [
         "Werkbeschrijving", "Werkbon is vervolg van",
         "Werkbon nummer", "Uitvoerdatum", "Object referentie", "Installatie apparaat omschrijving"
@@ -189,6 +187,7 @@ async def process_excel(file: UploadFile = File(...)):
 
     # Vul kolom Ketel gerelateerd vanuit keywords (prioriteit)
     mask_keyword = df_prod["Ketel gerelateerd_keyword"].notnull()
+    df_prod["Ketel gerelateerd"] = df_prod["Ketel gerelateerd"].astype(object)  # fix dtype warning
     df_prod.loc[mask_keyword, "Ketel gerelateerd"] = df_prod.loc[mask_keyword, "Ketel gerelateerd_keyword"]
 
     # Model voorspelling Ketel gerelateerd alleen toepassen op rijen zonder keyword invulling
@@ -204,10 +203,10 @@ async def process_excel(file: UploadFile = File(...)):
 
         df_prod.loc[mask_ml, "Ketel gerelateerd"] = np.where(y_proba_k.max(axis=1) > 0.7, np.where(y_pred_k == 1, "j", "n"), "")
 
-    df_prod["Ketel zekerheid"] = 0
+    df_prod["Ketel zekerheid"] = 0.0
     if mask_ml.any():
         df_prod.loc[mask_ml, "Ketel zekerheid"] = y_proba_k.max(axis=1)
-    df_prod.loc[mask_keyword, "Ketel zekerheid"] = 1  # Keywords zijn zeker
+    df_prod.loc[mask_keyword, "Ketel zekerheid"] = 1.0  # Keywords zijn zeker
 
     # FTF voorspellen voor rijen waar Ketel gerelateerd = "j"
     mask_ftf = (df_prod["Ketel gerelateerd"] == "j")
@@ -234,7 +233,7 @@ async def process_excel(file: UploadFile = File(...)):
     df_prod.loc[df_ftf.index, "FTF"] = df_ftf["FTF_keyword"].replace({"1": "1", "0": "", "": ""})
 
     # FTF zekerheid alleen voor ML voorspellingen
-    df_ftf["FTF zekerheid"] = 0
+    df_ftf["FTF zekerheid"] = 0.0
     if mask_ml_ftf.any():
         df_ftf.loc[mask_ml_ftf, "FTF zekerheid"] = y_proba_f.max(axis=1)
     df_prod.loc[df_ftf.index, "FTF zekerheid"] = df_ftf["FTF zekerheid"]
@@ -301,6 +300,26 @@ async def process_excel(file: UploadFile = File(...)):
         stream,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename=voorspeld_{file.filename}"}
+    )
+
+@app.post("/split_output/")
+async def split_output(file: UploadFile = File(...)):
+    contents = await file.read()
+    df = pd.read_excel(BytesIO(contents))
+
+    df_niet_ketel = df[df["Ketel gerelateerd"] == "n"]
+    df_ftf = df[df["Ketel gerelateerd"] != "n"]
+
+    stream = BytesIO()
+    with pd.ExcelWriter(stream, engine="openpyxl") as writer:
+        df_niet_ketel.to_excel(writer, index=False, sheet_name="Niet ketel gerelateerd")
+        df_ftf.to_excel(writer, index=False, sheet_name="FTF")
+    stream.seek(0)
+
+    return StreamingResponse(
+        stream,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=gesplitst_{file.filename}"}
     )
 
 if __name__ == "__main__":
