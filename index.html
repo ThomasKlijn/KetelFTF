@@ -3,15 +3,39 @@
 <head>
   <meta charset="UTF-8" />
   <title>Ketel & FTF verwerking</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .step { margin-bottom: 30px; padding: 20px; border: 1px solid #ccc; border-radius: 5px; }
+    .step h2 { color: #333; margin-top: 0; }
+    .step p { color: #666; margin-bottom: 15px; }
+    button { padding: 10px 20px; font-size: 16px; background-color: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+    button:hover { background-color: #0056b3; }
+    input[type="file"] { margin-bottom: 10px; }
+  </style>
 </head>
 <body>
-  <h1>Upload bestand voor voorspelling</h1>
-  <input type="file" id="fileInput1" />
-  <button onclick="uploadFile1()">Verwerk bestand</button>
+  <h1>Ketel & FTF Verwerking - 3 Stappen</h1>
   
-  <h1>Upload outputbestand om te splitsen</h1>
-  <input type="file" id="fileInput2" />
-  <button onclick="uploadFile2()">Split outputbestand</button>
+  <div class="step">
+    <h2>Stap 1: Ketel Gerelateerd Voorspelling</h2>
+    <p>Upload je Excel bestand om alleen de kolom "Ketel gerelateerd" in te vullen. Onzekere voorspellingen blijven leeg voor handmatige correctie.</p>
+    <input type="file" id="fileInput1" />
+    <button onclick="uploadFile1()">Voorspel Ketel Gerelateerd</button>
+  </div>
+  
+  <div class="step">
+    <h2>Stap 2: Bestand Splitsen</h2>
+    <p>Upload het bestand uit stap 1 (na handmatige correcties) om te splitsen. "Ketel gerelateerd" = "n" wordt gescheiden van "j".</p>
+    <input type="file" id="fileInput2" />
+    <button onclick="uploadFile2()">Split Bestand</button>
+  </div>
+  
+  <div class="step">
+    <h2>Stap 3: FTF Voorspelling</h2>
+    <p>Upload het gesplitste bestand om FTF te voorspellen voor alle "Ketel gerelateerd" = "j" rijen.</p>
+    <input type="file" id="fileInput3" />
+    <button onclick="uploadFile3()">Voorspel FTF</button>
+  </div>
   
   <script>
     async function uploadFile1() {
@@ -66,6 +90,35 @@
       const a = document.createElement('a');
       a.href = url;
       a.download = 'gesplitst_' + file.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    }
+
+    async function uploadFile3() {
+      const fileInput = document.getElementById('fileInput3');
+      if (!fileInput.files.length) {
+        alert("Selecteer een bestand.");
+        return;
+      }
+      const file = fileInput.files[0];
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/predict_ftf/', {
+        method: 'POST',
+        body: formData
+      });
+      if (!response.ok) {
+        alert("Fout bij FTF voorspelling.");
+        return;
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ftf_voorspeld_' + file.name;
       document.body.appendChild(a);
       a.click();
       a.remove();

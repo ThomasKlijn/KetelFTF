@@ -211,41 +211,13 @@ async def process_excel(file: UploadFile = File(...)):
         df_prod.loc[mask_ml, "Ketel zekerheid"] = y_proba_k.max(axis=1)
     df_prod.loc[mask_keyword, "Ketel zekerheid"] = 1.0  # Keywords zijn zeker
 
-    # FTF voorspellen voor rijen waar Ketel gerelateerd = "j"
-    mask_ftf = (df_prod["Ketel gerelateerd"] == "j")
-    df_ftf = df_prod[mask_ftf].copy()
-
-    # Rule-based FTF toewijzen
-    df_ftf["FTF_keyword"] = df_ftf["combined_text"].apply(keyword_based_ftf)
-
-    # ML FTF voorspelling voor rijen zonder rule-based FTF
-    mask_ml_ftf = df_ftf["FTF_keyword"].isnull()
-    if mask_ml_ftf.any():
-        X_text_f = df_ftf.loc[mask_ml_ftf, "combined_text"]
-        X_vec_f = ftf_vec.transform(X_text_f).toarray()
-        extra_f = df_ftf.loc[mask_ml_ftf, ["heeft_vervolg", "tekstlengte", "woordenaantal", "contains_onderdeel", "contains_reset", "contains_advies"]].values
-        X_comb_f = np.hstack((X_vec_f, extra_f))
-
-        y_proba_f = ftf_model.predict_proba(X_comb_f)
-        y_pred_f = ftf_model.predict(X_comb_f)
-
-        ftf_pred = np.where(y_proba_f.max(axis=1) > 0.6, y_pred_f.astype(str), "0")
-        df_ftf.loc[mask_ml_ftf, "FTF_keyword"] = ftf_pred
-
-    # Vul FTF kolom met gecombineerde resultaten, vervang "0" met lege string
-    df_prod.loc[df_ftf.index, "FTF"] = df_ftf["FTF_keyword"].replace({"1": "1", "0": "", "": ""})
-
-    # FTF zekerheid alleen voor ML voorspellingen
-    df_ftf["FTF zekerheid"] = 0.0
-    if mask_ml_ftf.any():
-        df_ftf.loc[mask_ml_ftf, "FTF zekerheid"] = y_proba_f.max(axis=1)
-    df_prod.loc[df_ftf.index, "FTF zekerheid"] = df_ftf["FTF zekerheid"]
+    # FTF wordt niet meer voorspeld in deze stap
 
     # Kolommen die NIET in output mogen
     exclude_cols = [
         "Unnamed: 18", "Unnamed: 19", "Unnamed: 20", "Unnamed: 21", "Unnamed: 22", "Unnamed: 23",
         "Oplossingen_samengevoegd", "combined_text", "heeft_vervolg", "tekstlengte", "woordenaantal",
-        "contains_onderdeel", "contains_reset", "contains_advies", "Ketel zekerheid", "FTF zekerheid",
+        "contains_onderdeel", "contains_reset", "contains_advies", "Ketel zekerheid",
         "Ketel gerelateerd_keyword"
     ]
 
@@ -287,13 +259,7 @@ async def process_excel(file: UploadFile = File(...)):
                 elif 0 < row["Ketel zekerheid"] < 0.7:
                     cell.fill = oranje
 
-            # Kleur FTF geel bij FTF=1 en zekerheid >= 0.6, oranje bij zekerheid tussen 0 en 0.6
-            if col_name == "FTF":
-                ftf_certainty = row.get("FTF zekerheid", 0)
-                if str(row["FTF"]) == "1" and ftf_certainty >= 0.6:
-                    cell.fill = geel
-                elif 0 < ftf_certainty < 0.6:
-                    cell.fill = oranje
+            # FTF kleurcodering wordt niet meer toegepast in deze stap
 
     stream = BytesIO()
     wb.save(stream)
@@ -311,18 +277,168 @@ async def split_output(file: UploadFile = File(...)):
     df = pd.read_excel(BytesIO(contents))
 
     df_niet_ketel = df[df["Ketel gerelateerd"] == "n"]
-    df_ftf = df[df["Ketel gerelateerd"] != "n"]
+    df_ketel_gerelateerd = df[df["Ketel gerelateerd"] == "j"]
 
     stream = BytesIO()
     with pd.ExcelWriter(stream, engine="openpyxl") as writer:
         df_niet_ketel.to_excel(writer, index=False, sheet_name="Niet ketel gerelateerd")
-        df_ftf.to_excel(writer, index=False, sheet_name="FTF")
+        df_ketel_gerelateerd.to_excel(writer, index=False, sheet_name="Ketel gerelateerd")
     stream.seek(0)
 
     return StreamingResponse(
         stream,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename=gesplitst_{file.filename}"}
+    )
+
+@app.post("/predict_ftf/")
+async def predict_ftf(file: UploadFile = File(...)):
+    contents = await file.read()
+    
+    # Probeer alle werkbladen te lezen
+    try:
+        all_sheets = pd.read_excel(BytesIO(contents), sheet_name=None)
+    except:
+        # Als het lezen mislukt, behandel als single sheet
+        df = pd.read_excel(BytesIO(contents))
+        all_sheets = {"Sheet1": df}
+    
+    # Zoek naar het "Ketel gerelateerd" werkblad, anders gebruik het eerste werkblad met 'j' rijen
+    target_sheet = None
+    target_sheet_name = None
+    
+    if "Ketel gerelateerd" in all_sheets:
+        target_sheet = all_sheets["Ketel gerelateerd"]
+        target_sheet_name = "Ketel gerelateerd"
+    else:
+        # Zoek naar werkblad met "Ketel gerelateerd" = "j" rijen
+        for sheet_name, sheet_df in all_sheets.items():
+            if "Ketel gerelateerd" in sheet_df.columns:
+                mask_ftf = (sheet_df["Ketel gerelateerd"] == "j")
+                if mask_ftf.any():
+                    target_sheet = sheet_df
+                    target_sheet_name = sheet_name
+                    break
+    
+    if target_sheet is None:
+        # Geen geschikt werkblad gevonden
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Geen werkblad gevonden met 'Ketel gerelateerd' = 'j' rijen. Upload het gesplitste bestand uit stap 2.")
+    
+    df = target_sheet.copy()
+    
+    # Alleen rijen waar "Ketel gerelateerd" = "j" behandelen voor FTF voorspelling
+    mask_ftf = (df["Ketel gerelateerd"] == "j")
+    df_ftf = df[mask_ftf].copy()
+    
+    if len(df_ftf) == 0:
+        # Geen ketel gerelateerde rijen gevonden in dit werkblad
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Geen rijen met 'Ketel gerelateerd' = 'j' gevonden in het gekozen werkblad.")
+    
+    # Bereid tekst features voor
+    alle_kolommen = df_ftf.columns.tolist()
+    potentiele_oplossingskolommen = ["Oplossingen"] + [col for col in alle_kolommen if col.startswith("Unnamed:")]
+    oplossingskolommen = [col for col in potentiele_oplossingskolommen if col in alle_kolommen]
+    
+    basis_tekstkolommen = [
+        "Werkbeschrijving", "Werkbon is vervolg van",
+        "Werkbon nummer", "Uitvoerdatum", "Object referentie", "Installatie apparaat omschrijving"
+    ]
+    tekstkolommen = [col for col in basis_tekstkolommen if col in alle_kolommen]
+
+    if oplossingskolommen:
+        df_ftf[oplossingskolommen] = df_ftf[oplossingskolommen].fillna("")
+        df_ftf["Oplossingen_samengevoegd"] = df_ftf[oplossingskolommen].astype(str).agg(" ".join, axis=1)
+    else:
+        df_ftf["Oplossingen_samengevoegd"] = ""
+
+    tekstkolommen.append("Oplossingen_samengevoegd")
+    df_ftf[tekstkolommen] = df_ftf[tekstkolommen].fillna("")
+    df_ftf["combined_text"] = df_ftf[tekstkolommen].apply(lambda r: " ".join([str(x) for x in r]), axis=1)
+    df_ftf["heeft_vervolg"] = df_ftf["Werkbon is vervolg van"].apply(lambda x: int(bool(str(x).strip())))
+    df_ftf["tekstlengte"] = df_ftf["combined_text"].apply(len)
+    df_ftf["woordenaantal"] = df_ftf["combined_text"].apply(lambda x: len(x.split()))
+    df_ftf["contains_onderdeel"] = df_ftf["combined_text"].str.contains("onderdeel|vervangen|vervang", case=False).astype(int)
+    df_ftf["contains_reset"] = df_ftf["combined_text"].str.contains("reset|herstart", case=False).astype(int)
+    df_ftf["contains_advies"] = df_ftf["combined_text"].str.contains("advies|aanbeveling", case=False).astype(int)
+    
+    # Rule-based FTF toewijzen
+    df_ftf["FTF_keyword"] = df_ftf["combined_text"].apply(keyword_based_ftf)
+
+    # ML FTF voorspelling voor rijen zonder rule-based FTF
+    mask_ml_ftf = df_ftf["FTF_keyword"].isnull()
+    if mask_ml_ftf.any():
+        X_text_f = df_ftf.loc[mask_ml_ftf, "combined_text"]
+        X_vec_f = ftf_vec.transform(X_text_f).toarray()
+        extra_f = df_ftf.loc[mask_ml_ftf, ["heeft_vervolg", "tekstlengte", "woordenaantal", "contains_onderdeel", "contains_reset", "contains_advies"]].values
+        X_comb_f = np.hstack((X_vec_f, extra_f))
+
+        y_proba_f = ftf_model.predict_proba(X_comb_f)
+        y_pred_f = ftf_model.predict(X_comb_f)
+
+        ftf_pred = np.where(y_proba_f.max(axis=1) > 0.6, y_pred_f.astype(str), "0")
+        df_ftf.loc[mask_ml_ftf, "FTF_keyword"] = ftf_pred
+
+    # Vul FTF kolom met gecombineerde resultaten, vervang "0" met lege string
+    df.loc[df_ftf.index, "FTF"] = df_ftf["FTF_keyword"].replace({"1": "1", "0": "", "": ""})
+
+    # FTF zekerheid alleen voor ML voorspellingen
+    df_ftf["FTF zekerheid"] = 0.0
+    if mask_ml_ftf.any():
+        df_ftf.loc[mask_ml_ftf, "FTF zekerheid"] = y_proba_f.max(axis=1)
+    df.loc[df_ftf.index, "FTF zekerheid"] = df_ftf["FTF zekerheid"]
+    
+    # Update het originele werkblad in all_sheets
+    all_sheets[target_sheet_name] = df
+    
+    # Kolommen die NIET in output mogen
+    exclude_cols = [
+        "Oplossingen_samengevoegd", "combined_text", "heeft_vervolg", "tekstlengte", "woordenaantal",
+        "contains_onderdeel", "contains_reset", "contains_advies", "FTF zekerheid"
+    ]
+
+    # Maak output Excel bestand met alle werkbladen
+    stream = BytesIO()
+    with pd.ExcelWriter(stream, engine="openpyxl") as writer:
+        for sheet_name, sheet_df in all_sheets.items():
+            # Filter kolommen voor output
+            output_cols = [col for col in sheet_df.columns if col not in exclude_cols]
+            output_df = sheet_df[output_cols].copy()
+            
+            # Schrijf naar Excel
+            output_df.to_excel(writer, sheet_name=sheet_name, index=False)
+            
+            # Alleen kleurcodering toepassen op het werkblad met FTF voorspellingen
+            if sheet_name == target_sheet_name:
+                wb = writer.book
+                ws = wb[sheet_name]
+                
+                geel = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+                oranje = PatternFill(start_color="FFA500", end_color="FFA500", fill_type="solid")
+                
+                # Zoek FTF kolom index
+                ftf_col_idx = None
+                if "FTF" in output_cols:
+                    ftf_col_idx = output_cols.index("FTF") + 1  # Excel is 1-indexed
+                
+                if ftf_col_idx:
+                    for row_idx, row in output_df.iterrows():
+                        excel_row = row_idx + 2  # +2 omdat rij 1 header is en pandas is 0-indexed
+                        ftf_certainty = sheet_df.loc[row_idx, "FTF zekerheid"] if "FTF zekerheid" in sheet_df.columns else 0
+                        ftf_value = str(row.get("FTF", ""))
+                        
+                        if ftf_value == "1" and ftf_certainty >= 0.6:
+                            ws.cell(row=excel_row, column=ftf_col_idx).fill = geel
+                        elif 0 < ftf_certainty < 0.6:
+                            ws.cell(row=excel_row, column=ftf_col_idx).fill = oranje
+
+    stream.seek(0)
+
+    return StreamingResponse(
+        stream,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=ftf_voorspeld_{file.filename}"}
     )
 
 if __name__ == "__main__":
