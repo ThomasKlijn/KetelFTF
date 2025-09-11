@@ -153,6 +153,91 @@ def apply_keywords_per_column(df, keywords_dict, columns):
                 df.loc[mask & df["Ketel gerelateerd_keyword"].isna(), "Ketel gerelateerd_keyword"] = "n"
     return df
 
+def create_address(df):
+    """Combineer adres kolommen tot één adres veld"""
+    address_cols = ["Werkbon bezoekadres straat", "Werkbon bezoekadres huisnummer", "toevoeging"]
+    
+    # Controleer welke kolommen bestaan
+    existing_cols = [col for col in address_cols if col in df.columns]
+    
+    if existing_cols:
+        # Combineer bestaande kolommen, vul lege waarden met lege string
+        df["Adres"] = df[existing_cols].fillna("").astype(str).agg(" ".join, axis=1).str.strip()
+        # Vervang meerdere spaties door één spatie
+        df["Adres"] = df["Adres"].str.replace(r'\s+', ' ', regex=True)
+    else:
+        # Als geen adres kolommen bestaan, maak lege adres kolom
+        df["Adres"] = ""
+    
+    return df
+
+def apply_duplicate_address_rule(df):
+    """Regel: Bij dubbele adressen, sorteer op datum en stel FTF in"""
+    if "Adres" not in df.columns or "Uitvoerdatum" not in df.columns:
+        return df
+    
+    # Zoek adressen die 2+ keer voorkomen
+    address_counts = df["Adres"].value_counts()
+    duplicate_addresses = address_counts[address_counts >= 2].index.tolist()
+    
+    for address in duplicate_addresses:
+        if address.strip():  # Negeer lege adressen
+            # Filter rijen met dit adres
+            mask = df["Adres"] == address
+            address_rows = df.loc[mask].copy()
+            
+            # Sorteer op uitvoerdatum (oudste eerst)
+            address_rows = address_rows.sort_values("Uitvoerdatum")
+            address_indices = address_rows.index.tolist()
+            
+            # Stel FTF in: oudste = "NFT", nieuwste = "1", rest = ""
+            if len(address_indices) >= 2:
+                df.loc[address_indices[0], "FTF"] = "NFT"  # Oudste
+                df.loc[address_indices[-1], "FTF"] = "1"   # Nieuwste
+                
+                # Alle tussenliggende rijen leeg maken
+                for idx in address_indices[1:-1]:
+                    df.loc[idx, "FTF"] = ""
+    
+    return df
+
+def apply_werkbon_follow_up_rule(df):
+    """Regel: Bij werkbon follow-ups, sorteer op datum en stel FTF in"""
+    if "Werkbon nummer" not in df.columns or "Werkbon is vervolg van" not in df.columns or "Uitvoerdatum" not in df.columns:
+        return df
+    
+    # Zoek rijen met werkbon follow-ups (format: WBxxxxxxx)
+    follow_up_mask = df["Werkbon is vervolg van"].str.contains(r'^WB\d+', na=False, regex=True)
+    follow_up_rows = df.loc[follow_up_mask]
+    
+    for idx, row in follow_up_rows.iterrows():
+        original_wb = row["Werkbon is vervolg van"]
+        current_wb = row["Werkbon nummer"]
+        
+        # Zoek de originele werkbon rij
+        original_mask = df["Werkbon nummer"] == original_wb
+        original_rows = df.loc[original_mask]
+        
+        if len(original_rows) > 0:
+            # Combineer huidige rij en originele rij(en)
+            combined_indices = [idx] + original_rows.index.tolist()
+            combined_rows = df.loc[combined_indices].copy()
+            
+            # Sorteer op uitvoerdatum (oudste eerst)
+            combined_rows = combined_rows.sort_values("Uitvoerdatum")
+            sorted_indices = combined_rows.index.tolist()
+            
+            # Stel FTF in: oudste = "NFT", nieuwste = "1", rest = ""
+            if len(sorted_indices) >= 2:
+                df.loc[sorted_indices[0], "FTF"] = "NFT"  # Oudste
+                df.loc[sorted_indices[-1], "FTF"] = "1"   # Nieuwste
+                
+                # Alle tussenliggende rijen leeg maken
+                for sidx in sorted_indices[1:-1]:
+                    df.loc[sidx, "FTF"] = ""
+    
+    return df
+
 @app.post("/process_excel/")
 async def process_excel(file: UploadFile = File(...)):
     contents = await file.read()
