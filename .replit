@@ -1,0 +1,7 @@
+modules = ["python-3.11", "web", "bash"]
+[agent]
+expertMode = true
+
+[nix]
+channel = "stable-25_05"
+packages = ["glibcLocales", "rapidfuzz-cpp", "taskflow"]
