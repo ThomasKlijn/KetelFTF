@@ -174,7 +174,10 @@ def create_address(df):
 def apply_duplicate_address_rule(df):
     """Regel: Bij dubbele adressen, sorteer op datum en stel FTF in"""
     if "Adres" not in df.columns or "Uitvoerdatum" not in df.columns:
-        return df
+        return df, set()
+    
+    # Track alle rijen die door deze regel worden aangepast
+    business_rule_indices = set()
     
     # Zoek adressen die 2+ keer voorkomen
     address_counts = df["Adres"].value_counts()
@@ -186,8 +189,15 @@ def apply_duplicate_address_rule(df):
             mask = df["Adres"] == address
             address_rows = df.loc[mask].copy()
             
-            # Sorteer op uitvoerdatum (oudste eerst)
-            address_rows = address_rows.sort_values("Uitvoerdatum")
+            # Converteer Uitvoerdatum naar datetime voor juiste sortering
+            try:
+                address_rows["Uitvoerdatum_dt"] = pd.to_datetime(address_rows["Uitvoerdatum"], errors='coerce')
+                # Sorteer op datetime (oudste eerst)
+                address_rows = address_rows.sort_values("Uitvoerdatum_dt")
+            except:
+                # Fallback naar string sortering als datetime conversie mislukt
+                address_rows = address_rows.sort_values("Uitvoerdatum")
+            
             address_indices = address_rows.index.tolist()
             
             # Stel FTF in: oudste = "NFT", nieuwste = "1", rest = ""
@@ -198,45 +208,111 @@ def apply_duplicate_address_rule(df):
                 # Alle tussenliggende rijen leeg maken
                 for idx in address_indices[1:-1]:
                     df.loc[idx, "FTF"] = ""
+                
+                # Track ALLE aangepaste rijen (inclusief degene die leeg worden)
+                business_rule_indices.update(address_indices)
     
-    return df
+    return df, business_rule_indices
 
 def apply_werkbon_follow_up_rule(df):
-    """Regel: Bij werkbon follow-ups, sorteer op datum en stel FTF in"""
+    """Regel: Bij werkbon follow-ups, bouw complete chains en sorteer op datum"""
     if "Werkbon nummer" not in df.columns or "Werkbon is vervolg van" not in df.columns or "Uitvoerdatum" not in df.columns:
-        return df
+        return df, set()
     
-    # Zoek rijen met werkbon follow-ups (format: WBxxxxxxx)
-    follow_up_mask = df["Werkbon is vervolg van"].str.contains(r'^WB\d+', na=False, regex=True)
-    follow_up_rows = df.loc[follow_up_mask]
+    # Track alle rijen die door deze regel worden aangepast
+    business_rule_indices = set()
     
-    for idx, row in follow_up_rows.iterrows():
-        original_wb = row["Werkbon is vervolg van"]
-        current_wb = row["Werkbon nummer"]
+    # Bouw een graph van alle follow-up relaties
+    follow_up_map = {}  # child -> parent mapping
+    wb_to_index = {}    # werkbon -> df index mapping
+    
+    # Vul mappings
+    for idx, row in df.iterrows():
+        wb_num = row["Werkbon nummer"]
+        wb_to_index[wb_num] = idx
         
-        # Zoek de originele werkbon rij
-        original_mask = df["Werkbon nummer"] == original_wb
-        original_rows = df.loc[original_mask]
-        
-        if len(original_rows) > 0:
-            # Combineer huidige rij en originele rij(en)
-            combined_indices = [idx] + original_rows.index.tolist()
-            combined_rows = df.loc[combined_indices].copy()
+        follow_up = row["Werkbon is vervolg van"]
+        if pd.notna(follow_up) and str(follow_up).strip():
+            # Check voor WB format
+            if str(follow_up).startswith('WB'):
+                follow_up_map[wb_num] = follow_up
+    
+    # Vind alle complete chains
+    processed_workbons = set()
+    
+    def find_chain_root(wb):
+        """Vind de root (oudste) werkbon in een chain"""
+        current = wb
+        visited = set()
+        while current in follow_up_map and current not in visited:
+            visited.add(current)
+            current = follow_up_map[current]
+        return current
+    
+    def build_complete_chain(root_wb):
+        """Bouw complete chain vanaf root"""
+        chain = [root_wb]
+        # Vind alle children recursief
+        changed = True
+        while changed:
+            changed = False
+            for child, parent in follow_up_map.items():
+                if parent in chain and child not in chain:
+                    chain.append(child)
+                    changed = True
+        return chain
+    
+    # Process elke chain
+    for wb in follow_up_map.keys():
+        if wb not in processed_workbons:
+            # Vind de root van deze chain
+            root_wb = find_chain_root(wb)
             
-            # Sorteer op uitvoerdatum (oudste eerst)
-            combined_rows = combined_rows.sort_values("Uitvoerdatum")
-            sorted_indices = combined_rows.index.tolist()
+            # Bouw complete chain
+            chain_workbons = build_complete_chain(root_wb)
             
-            # Stel FTF in: oudste = "NFT", nieuwste = "1", rest = ""
-            if len(sorted_indices) >= 2:
-                df.loc[sorted_indices[0], "FTF"] = "NFT"  # Oudste
-                df.loc[sorted_indices[-1], "FTF"] = "1"   # Nieuwste
+            # Markeer als processed
+            processed_workbons.update(chain_workbons)
+            
+            # Als we een chain van 2+ hebben, pas regel toe
+            if len(chain_workbons) >= 2:
+                # Verzamel indices voor alle workbons in chain
+                chain_indices = []
+                chain_rows = []
                 
-                # Alle tussenliggende rijen leeg maken
-                for sidx in sorted_indices[1:-1]:
-                    df.loc[sidx, "FTF"] = ""
+                for chain_wb in chain_workbons:
+                    if chain_wb in wb_to_index:
+                        idx = wb_to_index[chain_wb]
+                        chain_indices.append(idx)
+                        chain_rows.append(df.loc[idx])
+                
+                if len(chain_indices) >= 2:
+                    # Maak DataFrame van chain rows voor sortering
+                    chain_df = df.loc[chain_indices].copy()
+                    
+                    # Converteer Uitvoerdatum naar datetime voor juiste sortering
+                    try:
+                        chain_df["Uitvoerdatum_dt"] = pd.to_datetime(chain_df["Uitvoerdatum"], errors='coerce')
+                        # Sorteer op datetime (oudste eerst)
+                        chain_df = chain_df.sort_values("Uitvoerdatum_dt")
+                    except:
+                        # Fallback naar string sortering als datetime conversie mislukt
+                        chain_df = chain_df.sort_values("Uitvoerdatum")
+                    
+                    sorted_indices = chain_df.index.tolist()
+                    
+                    # Stel FTF in: oudste = "NFT", nieuwste = "1", rest = ""
+                    df.loc[sorted_indices[0], "FTF"] = "NFT"  # Oudste
+                    df.loc[sorted_indices[-1], "FTF"] = "1"   # Nieuwste
+                    
+                    # Alle tussenliggende rijen leeg maken
+                    for sidx in sorted_indices[1:-1]:
+                        df.loc[sidx, "FTF"] = ""
+                    
+                    # Track ALLE aangepaste rijen (inclusief degene die leeg worden)
+                    business_rule_indices.update(sorted_indices)
     
-    return df
+    return df, business_rule_indices
 
 @app.post("/process_excel/")
 async def process_excel(file: UploadFile = File(...)):
@@ -448,11 +524,36 @@ async def predict_ftf(file: UploadFile = File(...)):
     df_ftf["contains_reset"] = df_ftf["combined_text"].str.contains("reset|herstart", case=False).astype(int)
     df_ftf["contains_advies"] = df_ftf["combined_text"].str.contains("advies|aanbeveling", case=False).astype(int)
     
-    # Rule-based FTF toewijzen
-    df_ftf["FTF_keyword"] = df_ftf["combined_text"].apply(keyword_based_ftf)
+    # ---- NIEUWE BUSINESS REGELS VOOR FTF ----
+    
+    # Initialiseer FTF kolom als leeg
+    df_ftf["FTF"] = ""
+    
+    # Track alle rijen die door business rules worden aangepast
+    all_business_rule_indices = set()
+    
+    # Regel 1: Maak adres veld
+    df_ftf = create_address(df_ftf)
+    
+    # Regel 2: Dubbele adressen behandelen
+    df_ftf, address_rule_indices = apply_duplicate_address_rule(df_ftf)
+    all_business_rule_indices.update(address_rule_indices)
+    
+    # Regel 3: Werkbon follow-up chains behandelen
+    df_ftf, followup_rule_indices = apply_werkbon_follow_up_rule(df_ftf)
+    all_business_rule_indices.update(followup_rule_indices)
+    
+    # Voor rijen die NIET door business rules zijn aangepast, pas keyword/ML toe
+    # KRITISCH: Exclusief business rule rijen - ook die met lege waarden!
+    mask_not_business_rule = ~df_ftf.index.isin(all_business_rule_indices)
+    
+    # Rule-based FTF toewijzen (alleen voor non-business-rule rijen)
+    df_ftf["FTF_keyword"] = None
+    if mask_not_business_rule.any():
+        df_ftf.loc[mask_not_business_rule, "FTF_keyword"] = df_ftf.loc[mask_not_business_rule, "combined_text"].apply(keyword_based_ftf)
 
-    # ML FTF voorspelling voor rijen zonder rule-based FTF
-    mask_ml_ftf = df_ftf["FTF_keyword"].isnull()
+    # ML FTF voorspelling voor rijen zonder rule-based FTF EN geen business rule
+    mask_ml_ftf = (df_ftf["FTF_keyword"].isnull()) & mask_not_business_rule
     if mask_ml_ftf.any():
         X_text_f = df_ftf.loc[mask_ml_ftf, "combined_text"]
         X_vec_f = ftf_vec.transform(X_text_f).toarray()
@@ -465,8 +566,14 @@ async def predict_ftf(file: UploadFile = File(...)):
         ftf_pred = np.where(y_proba_f.max(axis=1) > 0.6, y_pred_f.astype(str), "0")
         df_ftf.loc[mask_ml_ftf, "FTF_keyword"] = ftf_pred
 
-    # Vul FTF kolom met gecombineerde resultaten, vervang "0" met lege string
-    df.loc[df_ftf.index, "FTF"] = df_ftf["FTF_keyword"].replace({"1": "1", "0": "", "": ""})
+    # Vul FTF kolom alleen voor non-business-rule rijen
+    # Business rule waarden blijven intact (inclusief lege waarden)
+    if mask_not_business_rule.any():
+        keyword_results = df_ftf.loc[mask_not_business_rule, "FTF_keyword"].fillna("").replace({"0": "", "": ""})
+        df_ftf.loc[mask_not_business_rule, "FTF"] = keyword_results
+    
+    # Update originele dataframe
+    df.loc[df_ftf.index, "FTF"] = df_ftf["FTF"]
 
     # FTF zekerheid alleen voor ML voorspellingen
     df_ftf["FTF zekerheid"] = 0.0
@@ -480,7 +587,7 @@ async def predict_ftf(file: UploadFile = File(...)):
     # Kolommen die NIET in output mogen
     exclude_cols = [
         "Oplossingen_samengevoegd", "combined_text", "heeft_vervolg", "tekstlengte", "woordenaantal",
-        "contains_onderdeel", "contains_reset", "contains_advies", "FTF zekerheid"
+        "contains_onderdeel", "contains_reset", "contains_advies", "FTF zekerheid", "Adres"
     ]
 
     # Maak output Excel bestand met alle werkbladen
