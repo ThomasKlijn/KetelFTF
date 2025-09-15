@@ -42,6 +42,6 @@ This is a machine learning-powered FastAPI application that processes Excel file
 - **uvicorn**: ASGI server
 
 ## Configuration
-- **Port**: 5000 (configured for Replit environment)
+- **Port**: 5000 (Replit) / 10000 (Render) - uses PORT environment variable
 - **Host**: 0.0.0.0 (allows external access)
 - **Deployment**: Autoscale (stateless web application)
