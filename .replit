@@ -1,7 +1,6 @@
 modules = ["python-3.11", "web", "bash"]
 [agent]
 expertMode = true
-integrations = ["github:1.0.0"]
 
 [nix]
 channel = "stable-25_05"
