@@ -135,9 +135,9 @@ negative_keywords = [
 def keyword_based_ftf(text: str):
     text_lower = text.lower()
     if any(k in text_lower for k in positive_keywords):
-        return "1"
+        return "FTF"
     if any(k in text_lower for k in negative_keywords):
-        return "0"
+        return "NFT"
     return None
 
 def apply_keywords_per_column(df, keywords_dict, columns):
@@ -200,14 +200,14 @@ def apply_duplicate_address_rule(df):
             
             address_indices = address_rows.index.tolist()
             
-            # Stel FTF in: oudste = "NFT", nieuwste = "1", rest = ""
+            # Stel FTF in: oudste = "NFT", nieuwste = "FTF", rest = "NFT"
             if len(address_indices) >= 2:
-                df.loc[address_indices[0], "FTF"] = "NFT"  # Oudste
-                df.loc[address_indices[-1], "FTF"] = "1"   # Nieuwste
+                df.loc[address_indices[0], "FTF"] = "NFT"   # Oudste
+                df.loc[address_indices[-1], "FTF"] = "FTF"  # Nieuwste (enige die FTF krijgt)
                 
-                # Alle tussenliggende rijen leeg maken
+                # Alle tussenliggende rijen krijgen ook NFT
                 for idx in address_indices[1:-1]:
-                    df.loc[idx, "FTF"] = ""
+                    df.loc[idx, "FTF"] = "NFT"
                 
                 # Track ALLE aangepaste rijen (inclusief degene die leeg worden)
                 business_rule_indices.update(address_indices)
@@ -301,13 +301,13 @@ def apply_werkbon_follow_up_rule(df):
                     
                     sorted_indices = chain_df.index.tolist()
                     
-                    # Stel FTF in: oudste = "NFT", nieuwste = "1", rest = ""
-                    df.loc[sorted_indices[0], "FTF"] = "NFT"  # Oudste
-                    df.loc[sorted_indices[-1], "FTF"] = "1"   # Nieuwste
+                    # Stel FTF in: oudste = "NFT", nieuwste = "FTF", rest = "NFT"
+                    df.loc[sorted_indices[0], "FTF"] = "NFT"   # Oudste
+                    df.loc[sorted_indices[-1], "FTF"] = "FTF"  # Nieuwste (enige die FTF krijgt)
                     
-                    # Alle tussenliggende rijen leeg maken
+                    # Alle tussenliggende rijen krijgen ook NFT
                     for sidx in sorted_indices[1:-1]:
-                        df.loc[sidx, "FTF"] = ""
+                        df.loc[sidx, "FTF"] = "NFT"
                     
                     # Track ALLE aangepaste rijen (inclusief degene die leeg worden)
                     business_rule_indices.update(sorted_indices)
@@ -674,13 +674,16 @@ async def predict_ftf(file: UploadFile = File(...)):
         y_proba_f = ftf_model.predict_proba(X_comb_f)
         y_pred_f = ftf_model.predict(X_comb_f)
 
-        ftf_pred = np.where(y_proba_f.max(axis=1) > 0.6, y_pred_f.astype(str), "0")
+        # Map ML output: "1" -> "FTF", "0" -> "NFT", anders leeg
+        ftf_pred_raw = np.where(y_proba_f.max(axis=1) > 0.7, y_pred_f.astype(str), "")
+        ftf_pred = np.where(ftf_pred_raw == "1", "FTF", 
+                   np.where(ftf_pred_raw == "0", "NFT", ""))
         df_ftf.loc[mask_ml_ftf, "FTF_keyword"] = ftf_pred
 
     # Vul FTF kolom alleen voor non-business-rule rijen
     # Business rule waarden blijven intact (inclusief lege waarden)
     if mask_not_business_rule.any():
-        keyword_results = df_ftf.loc[mask_not_business_rule, "FTF_keyword"].fillna("").replace({"0": "", "": ""})
+        keyword_results = df_ftf.loc[mask_not_business_rule, "FTF_keyword"].fillna("")
         df_ftf.loc[mask_not_business_rule, "FTF"] = keyword_results
     
     # Update originele dataframe
