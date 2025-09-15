@@ -499,7 +499,112 @@ async def predict_ftf(file: UploadFile = File(...)):
     
     # Bereid tekst features voor
     alle_kolommen = df_ftf.columns.tolist()
-    potentiele_oplossingskolommen = ["Oplossingen"] + [col for col in alle_kolommen if col.startswith("Unnamed:")]
+    
+    # *** DETERMINISTISCHE & UNIEKE MAPPING: Detecteer kolommen op basis van inhoud ***
+    # Als Excel geen header heeft, worden kolommen "Unnamed: X", etc.
+    column_mapping = {}
+    unnamed_cols = [col for col in alle_kolommen if str(col).startswith("Unnamed:")]
+    
+    if unnamed_cols:
+        print(f"Gevonden unnamed kolommen: {unnamed_cols}")
+        
+        # Bereken COVERAGE-SENSITIVE metrics op FULL dataframe (niet alleen df_ftf subset)
+        col_metrics = {}
+        for col in unnamed_cols:
+            # Gebruik volledige dataset voor betrouwbaardere metrics
+            full_col_data = df[col].astype(str)
+            non_null_mask = df[col].notna() & (df[col].astype(str).str.strip() != "")
+            non_null_data = df.loc[non_null_mask, col].astype(str)
+            
+            # Density = non-null coverage
+            density = non_null_mask.sum() / len(df) if len(df) > 0 else 0
+            
+            if len(non_null_data) == 0:
+                col_metrics[col] = {'werkbon_score': 0, 'vervolg_score': 0, 'date_score': 0, 'density': 0}
+                continue
+                
+            # Verbeterde WB pattern matching (handelt variaties af)
+            wb_pattern = r'^\s*WB[- ]?\d+'
+            wb_matches = non_null_data.str.contains(wb_pattern, na=False, regex=True).sum()
+            wb_match_fraction = wb_matches / len(df)  # Fractie van ALLE rijen
+            
+            # Werkbon score: WB matches gewogen met density (voorkomt sparse high-scoring vervolg cols)
+            werkbon_score = wb_match_fraction * density
+            
+            # Vervolg score: hoge null rate + enkele WB matches (prioriteert sparsity)
+            null_fraction = (~non_null_mask).sum() / len(df)
+            vervolg_score = null_fraction * (1 if wb_matches > 0 else 0)
+            
+            # Datum score: datetime conversie success rate op non-null data
+            try:
+                date_successes = pd.to_datetime(non_null_data, errors='coerce').notna().sum()
+                date_score = (date_successes / len(non_null_data)) * density
+            except:
+                date_score = 0
+            
+            col_metrics[col] = {
+                'werkbon_score': werkbon_score,
+                'vervolg_score': vervolg_score, 
+                'date_score': date_score,
+                'density': density,
+                'wb_matches': wb_matches,
+                'null_fraction': null_fraction
+            }
+            
+            print(f"Metrics voor {col}: werkbon_score={werkbon_score:.3f}, vervolg_score={vervolg_score:.3f}, "
+                  f"date_score={date_score:.3f}, density={density:.3f}")
+        
+        # ROLE-PRECEDENCE TOEWIJZING: Vervolg eerst, dan Werkbon, dan Datum
+        # Dit voorkomt dat sparse vervolg-kolommen verkeerd als werkbon worden geclassificeerd
+        used_cols = set()
+        assignment_order = [
+            ("Werkbon is vervolg van", 'vervolg_score', 0.3),  # Lagere threshold voor vervolg
+            ("Werkbon nummer", 'werkbon_score', 0.1),          # Werkbon na vervolg
+            ("Uitvoerdatum", 'date_score', 0.3)               # Datum als laatste
+        ]
+        
+        for target_name, score_key, min_threshold in assignment_order:
+            # Skip als target al bestaat
+            if target_name in alle_kolommen:
+                continue
+                
+            best_col = None
+            best_score = 0
+            
+            # Vind beste kandidaat voor deze role
+            for col, metrics in col_metrics.items():
+                if col in used_cols:
+                    continue
+                    
+                score = metrics[score_key]
+                
+                # Voor werkbon: extra check dat het niet beter past als vervolg
+                if target_name == "Werkbon nummer" and metrics['vervolg_score'] > metrics['werkbon_score']:
+                    continue  # Skip deze kolom, het is waarschijnlijk een vervolg kolom
+                
+                if score > best_score and score >= min_threshold:
+                    best_score = score
+                    best_col = col
+            
+            if best_col:
+                column_mapping[best_col] = target_name
+                used_cols.add(best_col)
+                print(f"Mapped {best_col} -> {target_name} (score: {best_score:.3f}, threshold: {min_threshold})")
+            else:
+                print(f"Geen geschikte kolom gevonden voor {target_name} (min threshold: {min_threshold})")
+        
+        # Pas mapping toe
+        if column_mapping:
+            df_ftf = df_ftf.rename(columns=column_mapping)
+            df = df.rename(columns=column_mapping)  # Ook originele df updaten
+            alle_kolommen = df_ftf.columns.tolist()
+            print(f"Finale mapping: {column_mapping}")
+        else:
+            print("Geen betrouwbare mapping gevonden (scores te laag)")
+    
+    # Exclusief gemappte unnamed kolommen van oplossingskolommen (voorkomen text contamination)
+    mapped_unnamed_cols = set(column_mapping.keys()) if column_mapping else set()
+    potentiele_oplossingskolommen = ["Oplossingen"] + [col for col in alle_kolommen if col.startswith("Unnamed:") and col not in mapped_unnamed_cols]
     oplossingskolommen = [col for col in potentiele_oplossingskolommen if col in alle_kolommen]
     
     basis_tekstkolommen = [
