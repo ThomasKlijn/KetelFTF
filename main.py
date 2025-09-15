@@ -135,9 +135,9 @@ negative_keywords = [
 def keyword_based_ftf(text: str):
     text_lower = text.lower()
     if any(k in text_lower for k in positive_keywords):
-        return "FTF"
+        return "FTF"  # Opgelost = first time fix
     if any(k in text_lower for k in negative_keywords):
-        return "NFT"
+        return "1"    # Niet opgelost = storing indicator
     return None
 
 def apply_keywords_per_column(df, keywords_dict, columns):
@@ -171,6 +171,145 @@ def create_address(df):
     
     return df
 
+def compute_visit_patterns(df):
+    """
+    Compute address visit counts and detect multi-visit scenarios.
+    Include fallback heuristics for missing address data.
+    
+    Returns:
+    - address_counts: Series with visit counts per address
+    - multi_visit_indices: set of row indices that are part of multi-visit scenarios
+    - single_visit_indices: set of row indices that are genuinely single visits
+    """
+    address_counts = pd.Series(dtype=int)
+    multi_visit_indices = set()
+    single_visit_indices = set()
+    
+    # Primary method: gebruik Adres kolom als beschikbaar en niet leeg
+    if "Adres" in df.columns:
+        # Filter out empty addresses
+        valid_address_mask = df["Adres"].fillna("").str.strip().ne("")
+        
+        if valid_address_mask.any():
+            # Compute counts voor geldige adressen
+            address_counts = df.loc[valid_address_mask, "Adres"].value_counts()
+            
+            # Identificeer multi-visit addresses
+            multi_addresses = address_counts[address_counts >= 2].index.tolist()
+            
+            for address in multi_addresses:
+                if address.strip():  # Extra veiligheidscheck
+                    mask = df["Adres"] == address
+                    multi_visit_indices.update(df.loc[mask].index.tolist())
+            
+            # Single visit addresses (met geldig adres)
+            single_addresses = address_counts[address_counts == 1].index.tolist()
+            for address in single_addresses:
+                if address.strip():
+                    mask = df["Adres"] == address
+                    single_visit_indices.update(df.loc[mask].index.tolist())
+            
+            print(f"Address method: {len(multi_addresses)} multi-visit addresses, {len(single_addresses)} single-visit addresses")
+    
+    # Fallback heuristics voor rijen zonder geldig adres
+    remaining_indices = set(df.index) - multi_visit_indices - single_visit_indices
+    
+    if remaining_indices:
+        print(f"Applying fallback heuristics for {len(remaining_indices)} rows without valid address")
+        
+        # Fallback 1: Werkbon follow-up chains (als kolommen beschikbaar zijn)
+        if "Werkbon nummer" in df.columns and "Werkbon is vervolg van" in df.columns:
+            # Build follow-up map
+            follow_up_map = {}
+            wb_to_index = {}
+            
+            for idx in remaining_indices:
+                row = df.loc[idx]
+                wb_num = row["Werkbon nummer"]
+                wb_to_index[wb_num] = idx
+                
+                follow_up = row["Werkbon is vervolg van"]
+                if pd.notna(follow_up) and str(follow_up).strip():
+                    if str(follow_up).startswith('WB'):
+                        follow_up_map[wb_num] = follow_up
+            
+            # Identify chains
+            def find_all_in_chain(wb):
+                """Find all workbons in the same chain"""
+                chain = set()
+                # Find all ancestors
+                current = wb
+                visited = set()
+                while current in follow_up_map and current not in visited:
+                    visited.add(current)
+                    current = follow_up_map[current]
+                
+                # Current is now the root, collect all descendants
+                chain.add(current)
+                changed = True
+                while changed:
+                    changed = False
+                    for child, parent in follow_up_map.items():
+                        if parent in chain and child not in chain:
+                            chain.add(child)
+                            changed = True
+                
+                return chain
+            
+            processed_wbs = set()
+            for wb in follow_up_map.keys():
+                if wb not in processed_wbs:
+                    chain_wbs = find_all_in_chain(wb)
+                    processed_wbs.update(chain_wbs)
+                    
+                    if len(chain_wbs) >= 2:
+                        # Multi-visit scenario
+                        chain_indices = [wb_to_index[wb] for wb in chain_wbs if wb in wb_to_index and wb_to_index[wb] in remaining_indices]
+                        multi_visit_indices.update(chain_indices)
+                        remaining_indices -= set(chain_indices)
+            
+            print(f"Fallback 1 (follow-up chains): identified {len(multi_visit_indices) - len([i for i in multi_visit_indices if i in df.index and df.loc[i, 'Adres'].strip()])} additional multi-visit rows")
+        
+        # Fallback 2: Frequent text patterns (conservative heuristic)
+        if remaining_indices and "combined_text" in df.columns:
+            # Extract key text features voor duplicate detection
+            remaining_df = df.loc[list(remaining_indices)].copy()
+            
+            # Simplistic text similarity based op keywords
+            if len(remaining_df) > 1:
+                # Create text signatures (first few significant words)
+                def create_text_signature(text):
+                    if pd.isna(text) or not str(text).strip():
+                        return ""
+                    words = str(text).lower().split()
+                    # Take first 3-5 significant words (excluding common stop words)
+                    stop_words = {'de', 'het', 'en', 'van', 'in', 'op', 'met', 'is', 'een', 'voor', 'aan', 'na', 'bij'}
+                    sig_words = [w for w in words[:10] if len(w) > 2 and w not in stop_words][:5]
+                    return " ".join(sig_words)
+                
+                remaining_df["text_signature"] = remaining_df["combined_text"].apply(create_text_signature)
+                
+                # Find signature duplicates (very conservative threshold)
+                sig_counts = remaining_df["text_signature"].value_counts()
+                dup_sigs = sig_counts[sig_counts >= 2].index.tolist()
+                
+                for sig in dup_sigs:
+                    if sig.strip():  # Ignore empty signatures
+                        sig_mask = remaining_df["text_signature"] == sig
+                        sig_indices = remaining_df.loc[sig_mask].index.tolist()
+                        if len(sig_indices) >= 2:
+                            multi_visit_indices.update(sig_indices)
+                            remaining_indices -= set(sig_indices)
+                
+                print(f"Fallback 2 (text patterns): identified {len(dup_sigs)} potential duplicate patterns")
+        
+        # All remaining indices are considered single-visit
+        single_visit_indices.update(remaining_indices)
+    
+    print(f"Final classification: {len(multi_visit_indices)} multi-visit, {len(single_visit_indices)} single-visit rows")
+    
+    return address_counts, multi_visit_indices, single_visit_indices
+
 def apply_duplicate_address_rule(df):
     """Regel: Bij dubbele adressen, sorteer op datum en stel FTF in"""
     if "Adres" not in df.columns or "Uitvoerdatum" not in df.columns:
@@ -200,14 +339,14 @@ def apply_duplicate_address_rule(df):
             
             address_indices = address_rows.index.tolist()
             
-            # Stel FTF in: oudste = "NFT", nieuwste = "FTF", rest = "NFT"
+            # Stel FTF in: oudste = "NFT", nieuwste = "1", rest = "" (leeg)
             if len(address_indices) >= 2:
-                df.loc[address_indices[0], "FTF"] = "NFT"   # Oudste
-                df.loc[address_indices[-1], "FTF"] = "FTF"  # Nieuwste (enige die FTF krijgt)
+                df.loc[address_indices[0], "FTF"] = "NFT"  # Oudste (geen FTF mogelijk)
+                df.loc[address_indices[-1], "FTF"] = "1"   # Nieuwste (storing indicator)
                 
-                # Alle tussenliggende rijen krijgen ook NFT
+                # Alle tussenliggende rijen leeg maken
                 for idx in address_indices[1:-1]:
-                    df.loc[idx, "FTF"] = "NFT"
+                    df.loc[idx, "FTF"] = ""
                 
                 # Track ALLE aangepaste rijen (inclusief degene die leeg worden)
                 business_rule_indices.update(address_indices)
@@ -215,7 +354,8 @@ def apply_duplicate_address_rule(df):
     return df, business_rule_indices
 
 def apply_werkbon_follow_up_rule(df):
-    """Regel: Bij werkbon follow-ups, bouw complete chains en sorteer op datum"""
+    """Regel: Bij werkbon follow-ups, bouw complete chains en sorteer op datum
+    KRITISCH: Respecteer bestaande FTF toewijzingen van address rules!"""
     if "Werkbon nummer" not in df.columns or "Werkbon is vervolg van" not in df.columns or "Uitvoerdatum" not in df.columns:
         return df, set()
     
@@ -274,43 +414,51 @@ def apply_werkbon_follow_up_rule(df):
             # Markeer als processed
             processed_workbons.update(chain_workbons)
             
-            # Als we een chain van 2+ hebben, pas regel toe
+            # Als we een chain van 2+ hebben, check of we deze kunnen behandelen
             if len(chain_workbons) >= 2:
                 # Verzamel indices voor alle workbons in chain
                 chain_indices = []
-                chain_rows = []
                 
                 for chain_wb in chain_workbons:
                     if chain_wb in wb_to_index:
                         idx = wb_to_index[chain_wb]
                         chain_indices.append(idx)
-                        chain_rows.append(df.loc[idx])
                 
                 if len(chain_indices) >= 2:
-                    # Maak DataFrame van chain rows voor sortering
-                    chain_df = df.loc[chain_indices].copy()
+                    # KRITISCH: Check of er al address rule toewijzingen zijn
+                    existing_ftf_assignments = df.loc[chain_indices, "FTF"].fillna("").ne("").any()
                     
-                    # Converteer Uitvoerdatum naar datetime voor juiste sortering
-                    try:
-                        chain_df["Uitvoerdatum_dt"] = pd.to_datetime(chain_df["Uitvoerdatum"], errors='coerce')
-                        # Sorteer op datetime (oudste eerst)
-                        chain_df = chain_df.sort_values("Uitvoerdatum_dt")
-                    except:
-                        # Fallback naar string sortering als datetime conversie mislukt
-                        chain_df = chain_df.sort_values("Uitvoerdatum")
-                    
-                    sorted_indices = chain_df.index.tolist()
-                    
-                    # Stel FTF in: oudste = "NFT", nieuwste = "FTF", rest = "NFT"
-                    df.loc[sorted_indices[0], "FTF"] = "NFT"   # Oudste
-                    df.loc[sorted_indices[-1], "FTF"] = "FTF"  # Nieuwste (enige die FTF krijgt)
-                    
-                    # Alle tussenliggende rijen krijgen ook NFT
-                    for sidx in sorted_indices[1:-1]:
-                        df.loc[sidx, "FTF"] = "NFT"
-                    
-                    # Track ALLE aangepaste rijen (inclusief degene die leeg worden)
-                    business_rule_indices.update(sorted_indices)
+                    if existing_ftf_assignments:
+                        # Address rules hebben al toegewezen - respecteer deze volledig
+                        # Track deze rijen als aangepast (zodat ML/keywords ze niet overschrijven)
+                        business_rule_indices.update(chain_indices)
+                        print(f"Follow-up rule respecteert bestaande address rule assignments voor chain: {chain_workbons}")
+                    else:
+                        # Geen conflicten - pas normale follow-up logica toe
+                        # Maak DataFrame van chain rows voor sortering
+                        chain_df = df.loc[chain_indices].copy()
+                        
+                        # Converteer Uitvoerdatum naar datetime voor juiste sortering
+                        try:
+                            chain_df["Uitvoerdatum_dt"] = pd.to_datetime(chain_df["Uitvoerdatum"], errors='coerce')
+                            # Sorteer op datetime (oudste eerst)
+                            chain_df = chain_df.sort_values("Uitvoerdatum_dt")
+                        except:
+                            # Fallback naar string sortering als datetime conversie mislukt
+                            chain_df = chain_df.sort_values("Uitvoerdatum")
+                        
+                        sorted_indices = chain_df.index.tolist()
+                        
+                        # Stel FTF in: oudste = "NFT", nieuwste = "1", rest = "" (leeg)
+                        df.loc[sorted_indices[0], "FTF"] = "NFT"  # Oudste (geen FTF mogelijk)
+                        df.loc[sorted_indices[-1], "FTF"] = "1"   # Nieuwste (storing indicator)
+                        
+                        # Alle tussenliggende rijen leeg maken
+                        for sidx in sorted_indices[1:-1]:
+                            df.loc[sidx, "FTF"] = ""
+                        
+                        # Track ALLE aangepaste rijen (inclusief degene die leeg worden)
+                        business_rule_indices.update(sorted_indices)
     
     return df, business_rule_indices
 
@@ -646,25 +794,35 @@ async def predict_ftf(file: UploadFile = File(...)):
     # Regel 1: Maak adres veld
     df_ftf = create_address(df_ftf)
     
-    # Regel 2: Dubbele adressen behandelen
+    # KRITISCH: Compute visit patterns VOOR business rules om multi-visit scenarios te detecteren
+    address_counts, multi_visit_indices, single_visit_indices = compute_visit_patterns(df_ftf)
+    
+    # Regel 2: Dubbele adressen behandelen (AUTHORITATIEF - finale beslissing)
     df_ftf, address_rule_indices = apply_duplicate_address_rule(df_ftf)
     all_business_rule_indices.update(address_rule_indices)
     
-    # Regel 3: Werkbon follow-up chains behandelen
+    # Regel 3: Werkbon follow-up chains behandelen (RESPECTEERT address rule assignments)
     df_ftf, followup_rule_indices = apply_werkbon_follow_up_rule(df_ftf)
     all_business_rule_indices.update(followup_rule_indices)
     
-    # Voor rijen die NIET door business rules zijn aangepast, pas keyword/ML toe
-    # KRITISCH: Exclusief business rule rijen - ook die met lege waarden!
-    mask_not_business_rule = ~df_ftf.index.isin(all_business_rule_indices)
+    # KRITISCH: ML/keywords ALLEEN voor single-visit addresses die NIET door business rules zijn behandeld
+    # Combineer business rule exclusion met single-visit requirement
+    mask_eligible_for_ml_keywords = (
+        ~df_ftf.index.isin(all_business_rule_indices) &  # Niet door business rules aangepast
+        df_ftf.index.isin(single_visit_indices)          # Alleen single-visit scenarios
+    )
     
-    # Rule-based FTF toewijzen (alleen voor non-business-rule rijen)
+    print(f"ML/Keywords eligible rows: {mask_eligible_for_ml_keywords.sum()} out of {len(df_ftf)} total rows")
+    print(f"Excluded by business rules: {len(all_business_rule_indices)}")
+    print(f"Excluded by multi-visit: {len(multi_visit_indices)}")
+    
+    # Rule-based FTF toewijzen (alleen voor eligible single-visit rijen)
     df_ftf["FTF_keyword"] = None
-    if mask_not_business_rule.any():
-        df_ftf.loc[mask_not_business_rule, "FTF_keyword"] = df_ftf.loc[mask_not_business_rule, "combined_text"].apply(keyword_based_ftf)
+    if mask_eligible_for_ml_keywords.any():
+        df_ftf.loc[mask_eligible_for_ml_keywords, "FTF_keyword"] = df_ftf.loc[mask_eligible_for_ml_keywords, "combined_text"].apply(keyword_based_ftf)
 
-    # ML FTF voorspelling voor rijen zonder rule-based FTF EN geen business rule
-    mask_ml_ftf = (df_ftf["FTF_keyword"].isnull()) & mask_not_business_rule
+    # ML FTF voorspelling voor eligible rijen zonder rule-based FTF 
+    mask_ml_ftf = (df_ftf["FTF_keyword"].isnull()) & mask_eligible_for_ml_keywords
     if mask_ml_ftf.any():
         X_text_f = df_ftf.loc[mask_ml_ftf, "combined_text"]
         X_vec_f = ftf_vec.transform(X_text_f).toarray()
@@ -674,17 +832,17 @@ async def predict_ftf(file: UploadFile = File(...)):
         y_proba_f = ftf_model.predict_proba(X_comb_f)
         y_pred_f = ftf_model.predict(X_comb_f)
 
-        # Map ML output: "1" -> "FTF", "0" -> "NFT", anders leeg
+        # Map ML output: "1" -> "FTF", "0" -> "1", anders leeg
         ftf_pred_raw = np.where(y_proba_f.max(axis=1) > 0.7, y_pred_f.astype(str), "")
-        ftf_pred = np.where(ftf_pred_raw == "1", "FTF", 
-                   np.where(ftf_pred_raw == "0", "NFT", ""))
+        ftf_pred = np.where(ftf_pred_raw == "1", "FTF",    # Opgelost = first time fix
+                   np.where(ftf_pred_raw == "0", "1", ""))  # Niet opgelost = storing indicator
         df_ftf.loc[mask_ml_ftf, "FTF_keyword"] = ftf_pred
 
-    # Vul FTF kolom alleen voor non-business-rule rijen
-    # Business rule waarden blijven intact (inclusief lege waarden)
-    if mask_not_business_rule.any():
-        keyword_results = df_ftf.loc[mask_not_business_rule, "FTF_keyword"].fillna("")
-        df_ftf.loc[mask_not_business_rule, "FTF"] = keyword_results
+    # Vul FTF kolom alleen voor eligible single-visit rijen
+    # Business rule waarden blijven intact (inclusief lege waarden van multi-visit scenarios)
+    if mask_eligible_for_ml_keywords.any():
+        keyword_results = df_ftf.loc[mask_eligible_for_ml_keywords, "FTF_keyword"].fillna("")
+        df_ftf.loc[mask_eligible_for_ml_keywords, "FTF"] = keyword_results
     
     # Update originele dataframe
     df.loc[df_ftf.index, "FTF"] = df_ftf["FTF"]
