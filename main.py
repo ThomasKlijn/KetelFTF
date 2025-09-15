@@ -517,7 +517,13 @@ async def predict_ftf(file: UploadFile = File(...)):
     tekstkolommen.append("Oplossingen_samengevoegd")
     df_ftf[tekstkolommen] = df_ftf[tekstkolommen].fillna("")
     df_ftf["combined_text"] = df_ftf[tekstkolommen].apply(lambda r: " ".join([str(x) for x in r]), axis=1)
-    df_ftf["heeft_vervolg"] = df_ftf["Werkbon is vervolg van"].apply(lambda x: int(bool(str(x).strip())))
+    
+    # Defensieve controle voor "Werkbon is vervolg van" kolom
+    if "Werkbon is vervolg van" in df_ftf.columns:
+        df_ftf["heeft_vervolg"] = df_ftf["Werkbon is vervolg van"].apply(lambda x: int(bool(str(x).strip())))
+    else:
+        df_ftf["heeft_vervolg"] = 0  # Geen follow-up informatie beschikbaar
+        
     df_ftf["tekstlengte"] = df_ftf["combined_text"].apply(len)
     df_ftf["woordenaantal"] = df_ftf["combined_text"].apply(lambda x: len(x.split()))
     df_ftf["contains_onderdeel"] = df_ftf["combined_text"].str.contains("onderdeel|vervangen|vervang", case=False).astype(int)
