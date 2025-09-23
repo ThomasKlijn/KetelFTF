@@ -22,104 +22,104 @@ ftf_vec = joblib.load("ftf_vectorizer_Vfinal.joblib")
 
 # Keywordlijsten Ketel gerelateerd (lowercase keys voor case-insensitive matching)
 keywords_kg = {
-    "flowsensor vervangen": "j",
-    "aansturing ivm 9u": "j",
-    "aansturing nefit": "j",
-    "aansturing ivm 9p": "j",
-    "lek hydroblok": "j",
-    "hydroblok": "j",
-    "3wk": "j",
-    "3WK": "j",
-    "branderautomaat": "j",
-    "defecte kim": "j",
-    "platenwisselaar vervangen": "j",
-    "wisselaar vervangen": "j",
-    "het hydroblok was lek": "j",
-    "rga beugelen": "n",
-    "rga gebeugeld": "n",
-    "druksensor vervangen": "j",
-    "condensafvoer": "n",
-    "hoofdprint vervangen": "j",
-    "driewegklep": "j",
-    "drie weg klep": "j",
-    "kaart in de bus": "n",
-    "Kaart in de bus": "n",
-    "3wegklep": "j",
-    "3weg klep": "j",
-    "wisselaar": "j",
-    "stromingssensor": "j",
-    "hoofdprint": "j",
-    "drieweg klep": "j",
-    "ontstek pen vv": "j",
-    "thermostaat van de klant is niet goed": "n",
-    "wartel bij de pomp": "j",
-    "ontsteekpen vervangen": "j",
-    "pomp vervangen": "j",
-    "ketel vervangen": "j",
-    "pomp": "j",
-    "condensafvoer herstellen.": "n",
-    "nieuwe afvoer maken": "n",
-    "flowsensor vv": "j",
-    "sensorflow vervangen": "j",
-    "sensorflow vv": "j",
-    "expansievat": "n",
-    "vloerverwarming": "n",
-    "slang op verdeler": "n",
-    "expansievat vervangen": "n",
-    "rga aanpassen": "n",
-    "warmtewisselaar": "j",
-    "ltv(luchttoevoer) vervangen": "n",
-    "verroest van binnen": "j",
-    "batterijen vervangen": "n",
-    "wisselaar is lek": "j",
-    "ketel bij gevuld": "n",
-    "pomp zat vast": "j",
-    "geen gas toevoer": "n",
-    "batterij van de koolmonoxide melder": "n",
-    "vaillant pomp aansluitkabel": "j",
-    "vaillant druksensor": "j",
-    "thermostaat": "n",
-    "vulkraan vervangen": "n",
-    "stekkertje ontsteekkabel": "n",
-    "rga herstellen": "n",
-    "rga vervangen en gebeugeld": "n",
-    "ltv (luchttoevoer) gebeugeld": "n",
-    "warmtewisselaar vervangen": "j",
-    "sensor flow vervangen": "j",
-    "pomp vv": "j",
-    "pomp verv": "j",
-    "sensor flow": "j",
-    "ketel vv": "j",
-    "flow sensor": "j",
-    "flowsensor": "j",
-    "ketel verv": "j",
-    "ventilator": "j",
-    "fentilator": "j",
-    "wtw": "n",
-    "pakking": "j",
-    "gloeiplug": "j",
-    "3 weg klep": "j",
-    "nieuwe ketel": "j",
-    "sam trechter vervangen": "n",
-    "rga en ltv + dakdoorvoer aanpassen.": "n",
-    "rookgas vervangen": "n",
-    "inspuiter": "j",
-    "bijgevuld": "n",
-    "flowswitch": "j",
-    "druksensor defect": "j",
-    "alle radiatorkranen dicht": "n",
-    "gasblok vervangen": "j",
-    "wasmachinekraan vervangen": "n",
-    "lijkt op print te zijn.": "j",
-    "overstort druppelde": "n",
-    "overstort en wasmachine kraan": "n",
-    "overstort vervangen": "n",
-    "uitgevoerde werkzaamheden: ketel afgekeurd": "j",
-    "spoed - ketel afgekeurd - nog vervangen": "j",
-    "ketel afgekeurd - nog vervangen": "j",
-    "thermostaat vervangen": "n",
-    "afuizing badkamer": "n",
-    "kamerthermostaat vervangen": "n"
+    "flowsensor vervangen": "ja",
+    "aansturing ivm 9u": "ja",
+    "aansturing nefit": "ja",
+    "aansturing ivm 9p": "ja",
+    "lek hydroblok": "ja",
+    "hydroblok": "ja",
+    "3wk": "ja",
+    "3WK": "ja",
+    "branderautomaat": "ja",
+    "defecte kim": "ja",
+    "platenwisselaar vervangen": "ja",
+    "wisselaar vervangen": "ja",
+    "het hydroblok was lek": "ja",
+    "rga beugelen": "nee",
+    "rga gebeugeld": "nee",
+    "druksensor vervangen": "ja",
+    "condensafvoer": "nee",
+    "hoofdprint vervangen": "ja",
+    "driewegklep": "ja",
+    "drie weg klep": "ja",
+    "kaart in de bus": "nee",
+    "Kaart in de bus": "nee",
+    "3wegklep": "ja",
+    "3weg klep": "ja",
+    "wisselaar": "ja",
+    "stromingssensor": "ja",
+    "hoofdprint": "ja",
+    "drieweg klep": "ja",
+    "ontstek pen vv": "ja",
+    "thermostaat van de klant is niet goed": "nee",
+    "wartel bij de pomp": "ja",
+    "ontsteekpen vervangen": "ja",
+    "pomp vervangen": "ja",
+    "ketel vervangen": "ja",
+    "pomp": "ja",
+    "condensafvoer herstellen.": "nee",
+    "nieuwe afvoer maken": "nee",
+    "flowsensor vv": "ja",
+    "sensorflow vervangen": "ja",
+    "sensorflow vv": "ja",
+    "expansievat": "nee",
+    "vloerverwarming": "nee",
+    "slang op verdeler": "nee",
+    "expansievat vervangen": "nee",
+    "rga aanpassen": "nee",
+    "warmtewisselaar": "ja",
+    "ltv(luchttoevoer) vervangen": "nee",
+    "verroest van binnen": "ja",
+    "batterijen vervangen": "nee",
+    "wisselaar is lek": "ja",
+    "ketel bij gevuld": "nee",
+    "pomp zat vast": "ja",
+    "geen gas toevoer": "nee",
+    "batterij van de koolmonoxide melder": "nee",
+    "vaillant pomp aansluitkabel": "ja",
+    "vaillant druksensor": "ja",
+    "thermostaat": "nee",
+    "vulkraan vervangen": "nee",
+    "stekkertje ontsteekkabel": "nee",
+    "rga herstellen": "nee",
+    "rga vervangen en gebeugeld": "nee",
+    "ltv (luchttoevoer) gebeugeld": "nee",
+    "warmtewisselaar vervangen": "ja",
+    "sensor flow vervangen": "ja",
+    "pomp vv": "ja",
+    "pomp verv": "ja",
+    "sensor flow": "ja",
+    "ketel vv": "ja",
+    "flow sensor": "ja",
+    "flowsensor": "ja",
+    "ketel verv": "ja",
+    "ventilator": "ja",
+    "fentilator": "ja",
+    "wtw": "nee",
+    "pakking": "ja",
+    "gloeiplug": "ja",
+    "3 weg klep": "ja",
+    "nieuwe ketel": "ja",
+    "sam trechter vervangen": "nee",
+    "rga en ltv + dakdoorvoer aanpassen.": "nee",
+    "rookgas vervangen": "nee",
+    "inspuiter": "ja",
+    "bijgevuld": "nee",
+    "flowswitch": "ja",
+    "druksensor defect": "ja",
+    "alle radiatorkranen dicht": "nee",
+    "gasblok vervangen": "ja",
+    "wasmachinekraan vervangen": "nee",
+    "lijkt op print te zijn.": "ja",
+    "overstort druppelde": "nee",
+    "overstort en wasmachine kraan": "nee",
+    "overstort vervangen": "nee",
+    "uitgevoerde werkzaamheden: ketel afgekeurd": "ja",
+    "spoed - ketel afgekeurd - nog vervangen": "ja",
+    "ketel afgekeurd - nog vervangen": "ja",
+    "thermostaat vervangen": "nee",
+    "afuizing badkamer": "nee",
+    "kamerthermostaat vervangen": "nee"
 }
 
 # Rule-based FTF keywords
@@ -147,10 +147,10 @@ def apply_keywords_per_column(df, keywords_dict, columns):
         text_lower = df[col].fillna("").str.lower()
         for kw, val in keywords_dict.items():
             mask = text_lower.str.contains(kw, na=False, regex=False)
-            if val == "j":
-                df.loc[mask, "Ketel gerelateerd_keyword"] = "j"
+            if val == "ja":
+                df.loc[mask, "Ketel gerelateerd_keyword"] = "ja"
             else:
-                df.loc[mask & df["Ketel gerelateerd_keyword"].isna(), "Ketel gerelateerd_keyword"] = "n"
+                df.loc[mask & df["Ketel gerelateerd_keyword"].isna(), "Ketel gerelateerd_keyword"] = "nee"
     return df
 
 def create_address(df):
@@ -513,7 +513,7 @@ async def process_excel(file: UploadFile = File(...)):
         y_proba_k = ketel_model.predict_proba(X_comb_k)
         y_pred_k = ketel_model.predict(X_comb_k)
 
-        df_prod.loc[mask_ml, "Ketel gerelateerd"] = np.where(y_proba_k.max(axis=1) > 0.7, np.where(y_pred_k == 1, "j", "n"), "")
+        df_prod.loc[mask_ml, "Ketel gerelateerd"] = np.where(y_proba_k.max(axis=1) > 0.7, np.where(y_pred_k == 1, "ja", "nee"), "")
 
     df_prod["Ketel zekerheid"] = 0.0
     if mask_ml.any():
@@ -585,8 +585,8 @@ async def split_output(file: UploadFile = File(...)):
     contents = await file.read()
     df = pd.read_excel(BytesIO(contents))
 
-    df_niet_ketel = df[df["Ketel gerelateerd"] == "n"]
-    df_ketel_gerelateerd = df[df["Ketel gerelateerd"] == "j"]
+    df_niet_ketel = df[df["Ketel gerelateerd"] == "nee"]
+    df_ketel_gerelateerd = df[df["Ketel gerelateerd"] == "ja"]
 
     stream = BytesIO()
     with pd.ExcelWriter(stream, engine="openpyxl") as writer:
@@ -620,10 +620,10 @@ async def predict_ftf(file: UploadFile = File(...)):
         target_sheet = all_sheets["Ketel gerelateerd"]
         target_sheet_name = "Ketel gerelateerd"
     else:
-        # Zoek naar werkblad met "Ketel gerelateerd" = "j" rijen
+        # Zoek naar werkblad met "Ketel gerelateerd" = "ja" rijen
         for sheet_name, sheet_df in all_sheets.items():
             if "Ketel gerelateerd" in sheet_df.columns:
-                mask_ftf = (sheet_df["Ketel gerelateerd"] == "j")
+                mask_ftf = (sheet_df["Ketel gerelateerd"] == "ja")
                 if mask_ftf.any():
                     target_sheet = sheet_df
                     target_sheet_name = sheet_name
@@ -632,18 +632,18 @@ async def predict_ftf(file: UploadFile = File(...)):
     if target_sheet is None:
         # Geen geschikt werkblad gevonden
         from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="Geen werkblad gevonden met 'Ketel gerelateerd' = 'j' rijen. Upload het gesplitste bestand uit stap 2.")
+        raise HTTPException(status_code=400, detail="Geen werkblad gevonden met 'Ketel gerelateerd' = 'ja' rijen. Upload het gesplitste bestand uit stap 2.")
     
     df = target_sheet.copy()
     
-    # Alleen rijen waar "Ketel gerelateerd" = "j" behandelen voor FTF voorspelling
-    mask_ftf = (df["Ketel gerelateerd"] == "j")
+    # Alleen rijen waar "Ketel gerelateerd" = "ja" behandelen voor FTF voorspelling
+    mask_ftf = (df["Ketel gerelateerd"] == "ja")
     df_ftf = df[mask_ftf].copy()
     
     if len(df_ftf) == 0:
         # Geen ketel gerelateerde rijen gevonden in dit werkblad
         from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="Geen rijen met 'Ketel gerelateerd' = 'j' gevonden in het gekozen werkblad.")
+        raise HTTPException(status_code=400, detail="Geen rijen met 'Ketel gerelateerd' = 'ja' gevonden in het gekozen werkblad.")
     
     # Bereid tekst features voor
     alle_kolommen = df_ftf.columns.tolist()
