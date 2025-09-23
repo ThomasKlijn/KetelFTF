@@ -2,127 +2,478 @@
 <html lang="nl">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Ketel & FTF verwerking</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    .step { margin-bottom: 30px; padding: 20px; border: 1px solid #ccc; border-radius: 5px; }
-    .step h2 { color: #333; margin-top: 0; }
-    .step p { color: #666; margin-bottom: 15px; }
-    button { padding: 10px 20px; font-size: 16px; background-color: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
-    button:hover { background-color: #0056b3; }
-    input[type="file"] { margin-bottom: 10px; }
+    body { 
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+      margin: 0; 
+      padding: 20px; 
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      min-height: 100vh;
+    }
+    
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px;
+      text-align: center;
+    }
+    
+    .header h1 {
+      margin: 0;
+      font-size: 2.5em;
+      font-weight: 300;
+    }
+    
+    .content {
+      padding: 30px;
+    }
+    
+    .step { 
+      margin-bottom: 30px; 
+      padding: 25px; 
+      border: 2px solid #e9ecef; 
+      border-radius: 12px; 
+      background: #f8f9fa;
+      transition: all 0.3s ease;
+    }
+    
+    .step:hover {
+      border-color: #667eea;
+      background: #ffffff;
+      box-shadow: 0 5px 15px rgba(102, 126, 234, 0.1);
+    }
+    
+    .step h2 { 
+      color: #2c3e50; 
+      margin-top: 0; 
+      margin-bottom: 15px;
+      font-size: 1.4em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    .step-number {
+      background: #667eea;
+      color: white;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 0.9em;
+    }
+    
+    .step p { 
+      color: #495057; 
+      margin-bottom: 20px; 
+      line-height: 1.6;
+    }
+    
+    .value-badges {
+      display: flex;
+      gap: 10px;
+      margin: 15px 0;
+      flex-wrap: wrap;
+    }
+    
+    .badge {
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-weight: 600;
+      font-size: 0.9em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .badge-ja {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    
+    .badge-nee {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    
+    .badge-ftf {
+      background: #cce5ff;
+      color: #004085;
+      border: 1px solid #b3d7ff;
+    }
+    
+    .badge-fault {
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffeaa7;
+    }
+    
+    button { 
+      padding: 12px 24px; 
+      font-size: 16px; 
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white; 
+      border: none; 
+      border-radius: 6px; 
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-weight: 600;
+      width: 100%;
+      max-width: 300px;
+    }
+    
+    button:hover { 
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+    
+    button:disabled {
+      background: #6c757d;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    
+    input[type="file"] { 
+      margin-bottom: 15px; 
+      padding: 10px;
+      border: 2px dashed #dee2e6;
+      border-radius: 6px;
+      width: 100%;
+      max-width: 400px;
+      background: white;
+      cursor: pointer;
+      transition: border-color 0.3s ease;
+    }
+    
+    input[type="file"]:hover {
+      border-color: #667eea;
+    }
+    
+    .file-upload-area {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: #e9ecef;
+      border-radius: 3px;
+      overflow: hidden;
+      margin: 10px 0;
+      display: none;
+    }
+    
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #667eea, #764ba2);
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+    
+    .progress-fill.active {
+      width: 90%;
+      animation: pulse 1.5s ease-in-out infinite alternate;
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 0.8; }
+      100% { opacity: 1; }
+    }
+    
+    .status-message {
+      padding: 10px 15px;
+      border-radius: 6px;
+      margin: 10px 0;
+      display: none;
+    }
+    
+    .status-success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    
+    .status-error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    
+    .examples {
+      background: #f1f3f4;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 15px 0;
+      border-left: 4px solid #667eea;
+    }
+    
+    .examples h4 {
+      margin: 0 0 10px 0;
+      color: #2c3e50;
+      font-size: 0.95em;
+    }
+    
+    .examples ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+    
+    .examples li {
+      color: #495057;
+      font-size: 0.9em;
+      margin-bottom: 5px;
+    }
+    
+    @media (max-width: 768px) {
+      .container { margin: 10px; }
+      .content { padding: 20px; }
+      .header { padding: 20px; }
+      .header h1 { font-size: 2em; }
+    }
   </style>
 </head>
 <body>
-  <h1>Ketel & FTF Verwerking - 3 Stappen</h1>
-  
-  <div class="step">
-    <h2>Stap 1: Ketel Gerelateerd Voorspelling</h2>
-    <p>Upload je Excel bestand om alleen de kolom "Ketel gerelateerd" in te vullen. Onzekere voorspellingen blijven leeg voor handmatige correctie.</p>
-    <input type="file" id="fileInput1" />
-    <button onclick="uploadFile1()">Voorspel Ketel Gerelateerd</button>
-  </div>
-  
-  <div class="step">
-    <h2>Stap 2: Bestand Splitsen</h2>
-    <p>Upload het bestand uit stap 1 (na handmatige correcties) om te splitsen. "Ketel gerelateerd" = "nee" wordt gescheiden van "ja".</p>
-    <input type="file" id="fileInput2" />
-    <button onclick="uploadFile2()">Split Bestand</button>
-  </div>
-  
-  <div class="step">
-    <h2>Stap 3: FTF Voorspelling</h2>
-    <p>Upload het gesplitste bestand om FTF te voorspellen voor alle "Ketel gerelateerd" = "ja" rijen.</p>
-    <input type="file" id="fileInput3" />
-    <button onclick="uploadFile3()">Voorspel FTF</button>
+  <div class="container">
+    <div class="header">
+      <h1>🔧 Ketel & FTF Verwerking</h1>
+      <p style="margin: 10px 0 0 0; opacity: 0.9;">Automatische werkorder classificatie in 3 eenvoudige stappen</p>
+    </div>
+    
+    <div class="content">
+      <div class="step">
+        <h2><span class="step-number">1</span>Ketel Gerelateerd Voorspelling</h2>
+        <p>Upload je Excel bestand om de kolom "Ketel gerelateerd" automatisch in te vullen. Het systeem gebruikt machine learning en trefwoorden om te classificeren.</p>
+        
+        <div class="value-badges">
+          <div class="badge badge-ja">✅ ja - Ketel gerelateerd werk</div>
+          <div class="badge badge-nee">❌ nee - Niet ketel gerelateerd</div>
+        </div>
+        
+        <div class="examples">
+          <h4>Voorbeelden:</h4>
+          <ul>
+            <li><strong>ja:</strong> "pomp vervangen", "hydroblok lek", "driewegklep defect"</li>
+            <li><strong>nee:</strong> "thermostaat vervangen", "rga beugelen", "expansievat"</li>
+          </ul>
+        </div>
+        
+        <div class="file-upload-area">
+          <input type="file" id="fileInput1" accept=".xlsx,.xls" />
+          <button id="btn1" onclick="uploadFile1()">🎯 Voorspel Ketel Gerelateerd</button>
+          <div class="progress-bar" id="progress1"><div class="progress-fill"></div></div>
+          <div class="status-message" id="status1"></div>
+        </div>
+      </div>
+      
+      <div class="step">
+        <h2><span class="step-number">2</span>Bestand Splitsen</h2>
+        <p>Upload het bestand uit stap 1 (na handmatige correcties) om te splitsen in twee aparte bestanden.</p>
+        
+        <div class="value-badges">
+          <div class="badge badge-nee">📄 "nee" → Niet ketel bestand</div>
+          <div class="badge badge-ja">📄 "ja" → Ketel bestand</div>
+        </div>
+        
+        <div class="examples">
+          <h4>Resultaat:</h4>
+          <ul>
+            <li>Bestand 1: Alle rijen met "Ketel gerelateerd" = <strong>"nee"</strong></li>
+            <li>Bestand 2: Alle rijen met "Ketel gerelateerd" = <strong>"ja"</strong></li>
+          </ul>
+        </div>
+        
+        <div class="file-upload-area">
+          <input type="file" id="fileInput2" accept=".xlsx,.xls" />
+          <button id="btn2" onclick="uploadFile2()">📊 Split Bestand</button>
+          <div class="progress-bar" id="progress2"><div class="progress-fill"></div></div>
+          <div class="status-message" id="status2"></div>
+        </div>
+      </div>
+      
+      <div class="step">
+        <h2><span class="step-number">3</span>FTF Voorspelling</h2>
+        <p>Upload het "ja" bestand uit stap 2 om First Time Fix status te voorspellen voor alle ketel gerelateerde werkorders.</p>
+        
+        <div class="value-badges">
+          <div class="badge badge-ftf">✅ FTF - First Time Fix</div>
+          <div class="badge badge-fault">⚠️ 1 - Storing indicator</div>
+          <div class="badge badge-nee">❌ NFT - No First Time</div>
+        </div>
+        
+        <div class="examples">
+          <h4>FTF betekenis:</h4>
+          <ul>
+            <li><strong>FTF:</strong> Probleem opgelost tijdens eerste bezoek</li>
+            <li><strong>1:</strong> Storing nog niet opgelost, follow-up nodig</li>
+            <li><strong>NFT:</strong> Geen FTF mogelijk (meerdere bezoeken)</li>
+          </ul>
+        </div>
+        
+        <div class="file-upload-area">
+          <input type="file" id="fileInput3" accept=".xlsx,.xls" />
+          <button id="btn3" onclick="uploadFile3()">🎯 Voorspel FTF</button>
+          <div class="progress-bar" id="progress3"><div class="progress-fill"></div></div>
+          <div class="status-message" id="status3"></div>
+        </div>
+      </div>
+    </div>
   </div>
   
   <script>
-    async function uploadFile1() {
-      const fileInput = document.getElementById('fileInput1');
-      if (!fileInput.files.length) {
-        alert("Selecteer een bestand.");
-        return;
-      }
-      const file = fileInput.files[0];
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch('/process_excel/', {
-        method: 'POST',
-        body: formData
-      });
-      if (!response.ok) {
-        alert("Fout bij uploaden/verwerken bestand.");
-        return;
-      }
-      const blob = await response.blob();
+    function showProgress(stepNum) {
+      const progressBar = document.getElementById(`progress${stepNum}`);
+      const progressFill = progressBar.querySelector('.progress-fill');
+      progressBar.style.display = 'block';
+      progressFill.classList.add('active');
+      document.getElementById(`btn${stepNum}`).disabled = true;
+      document.getElementById(`status${stepNum}`).style.display = 'none';
+    }
+    
+    function hideProgress(stepNum) {
+      const progressBar = document.getElementById(`progress${stepNum}`);
+      const progressFill = progressBar.querySelector('.progress-fill');
+      progressBar.style.display = 'none';
+      progressFill.classList.remove('active');
+      document.getElementById(`btn${stepNum}`).disabled = false;
+    }
+    
+    function showStatus(stepNum, message, isError = false) {
+      const statusEl = document.getElementById(`status${stepNum}`);
+      statusEl.textContent = message;
+      statusEl.className = `status-message ${isError ? 'status-error' : 'status-success'}`;
+      statusEl.style.display = 'block';
+    }
+    
+    function downloadFile(blob, filename) {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'voorspeld_' + file.name;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
+    }
+
+    async function uploadFile1() {
+      const fileInput = document.getElementById('fileInput1');
+      if (!fileInput.files.length) {
+        showStatus(1, "⚠️ Selecteer eerst een Excel bestand", true);
+        return;
+      }
+      
+      const file = fileInput.files[0];
+      showProgress(1);
+      
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch('/process_excel/', {
+          method: 'POST',
+          body: formData
+        });
+        
+        if (!response.ok) {
+          throw new Error('Verwerking mislukt');
+        }
+        
+        const blob = await response.blob();
+        downloadFile(blob, 'voorspeld_' + file.name);
+        showStatus(1, "✅ Ketel classificatie voltooid! Bestand gedownload met 'ja'/'nee' waarden.");
+        
+      } catch (error) {
+        showStatus(1, "❌ Fout bij verwerken: " + error.message, true);
+      } finally {
+        hideProgress(1);
+      }
     }
 
     async function uploadFile2() {
       const fileInput = document.getElementById('fileInput2');
       if (!fileInput.files.length) {
-        alert("Selecteer een bestand.");
+        showStatus(2, "⚠️ Selecteer het bestand uit stap 1", true);
         return;
       }
+      
       const file = fileInput.files[0];
-      const formData = new FormData();
-      formData.append('file', file);
+      showProgress(2);
+      
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
 
-      const response = await fetch('/split_output/', {
-        method: 'POST',
-        body: formData
-      });
-      if (!response.ok) {
-        alert("Fout bij splitten bestand.");
-        return;
+        const response = await fetch('/split_output/', {
+          method: 'POST',
+          body: formData
+        });
+        
+        if (!response.ok) {
+          throw new Error('Splitsen mislukt');
+        }
+        
+        const blob = await response.blob();
+        downloadFile(blob, 'gesplitst_' + file.name);
+        showStatus(2, "✅ Bestand gesplitst! Twee aparte bestanden gedownload: 'nee' en 'ja' werkorders.");
+        
+      } catch (error) {
+        showStatus(2, "❌ Fout bij splitsen: " + error.message, true);
+      } finally {
+        hideProgress(2);
       }
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'gesplitst_' + file.name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
     }
 
     async function uploadFile3() {
       const fileInput = document.getElementById('fileInput3');
       if (!fileInput.files.length) {
-        alert("Selecteer een bestand.");
+        showStatus(3, "⚠️ Selecteer het 'ja' bestand uit stap 2", true);
         return;
       }
+      
       const file = fileInput.files[0];
-      const formData = new FormData();
-      formData.append('file', file);
+      showProgress(3);
+      
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
 
-      const response = await fetch('/predict_ftf/', {
-        method: 'POST',
-        body: formData
-      });
-      if (!response.ok) {
-        alert("Fout bij FTF voorspelling.");
-        return;
+        const response = await fetch('/predict_ftf/', {
+          method: 'POST',
+          body: formData
+        });
+        
+        if (!response.ok) {
+          throw new Error('FTF voorspelling mislukt');
+        }
+        
+        const blob = await response.blob();
+        downloadFile(blob, 'ftf_voorspeld_' + file.name);
+        showStatus(3, "✅ FTF voorspelling voltooid! Bestand bevat nu FTF, NFT en fault indicators.");
+        
+      } catch (error) {
+        showStatus(3, "❌ Fout bij FTF voorspelling: " + error.message, true);
+      } finally {
+        hideProgress(3);
       }
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'ftf_voorspeld_' + file.name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
     }
   </script>
 </body>
