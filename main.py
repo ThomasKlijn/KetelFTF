@@ -1,5 +1,5 @@
 from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
 import pandas as pd
 import numpy as np
 import joblib
@@ -12,7 +12,16 @@ app = FastAPI()
 
 @app.get("/")
 async def read_root():
-    return FileResponse("index.html")
+    with open("index.html", "r", encoding="utf-8") as f:
+        content = f.read()
+    return HTMLResponse(
+        content=content,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
 
 # Modellen en vectorizers laden
 ketel_model = joblib.load("ketel_model_Vfinal.joblib")
