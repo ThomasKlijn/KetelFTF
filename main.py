@@ -81,7 +81,7 @@ keywords_kg = {
     "kabelboom": "ja",
     "automaat": "ja",
     "regenkap": "nee",
-    "regenkapje" "nee",
+    "regenkapje": "nee",
     "koppeling warmwater retour": "nee",
     "branderautomaat": "ja",
     "defecte kim": "ja",
