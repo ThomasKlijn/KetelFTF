@@ -174,7 +174,6 @@ keywords_kg = {
     "geen storing": "nee",
     "geen problemen": "nee",
     "klant neemt niet op": "nee",
-    
     "ketel vv": "ja",
     "flow sensor": "ja",
     "flowsensor": "ja",
@@ -228,7 +227,6 @@ keywords_kg = {
     "KTH": "nee",
     "Kth": "nee",
     "kth": "nee",
-    
     "gevuld": "nee",
     "Bijvullen": "nee",
     "bijgevuld": "nee",
