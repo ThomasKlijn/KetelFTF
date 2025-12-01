@@ -110,7 +110,7 @@ keywords_kg = {
     "spoelmechanisme": "nee",
     "ontlucht": "nee",
     "batterij": "nee",
-    "veturi" "ja",
+    "veturi": "ja",
     "lekkage inlaatcombinatie": "nee",
     "sensor retour": "ja",
     "sensorretour": "ja",
