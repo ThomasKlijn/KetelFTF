@@ -111,7 +111,6 @@ keywords_kg = {
     "ontlucht": "nee",
     "batterij": "nee",
     "veturi" "ja",
-    
     "lekkage inlaatcombinatie": "nee",
     "sensor retour": "ja",
     "sensorretour": "ja",
