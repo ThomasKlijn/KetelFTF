@@ -255,7 +255,7 @@
   <div class="container">
     <div class="header">
       <h1>🔧 Ketel & FTF Verwerking</h1>
-      <p style="margin: 10px 0 0 0; opacity: 0.9;">Automatische werkorder classificatie in 3 eenvoudige stappen</p>
+      <p style="margin: 10px 0 0 0; opacity: 0.9;">Automatische werkorder classificatie in 4 eenvoudige stappen</p>
     </div>
     
     <div class="content">
@@ -333,6 +333,37 @@
           <button id="btn3" onclick="uploadFile3()">🎯 Voorspel FTF</button>
           <div class="progress-bar" id="progress3"><div class="progress-fill"></div></div>
           <div class="status-message" id="status3"></div>
+        </div>
+      </div>
+      
+      <div class="step">
+        <h2><span class="step-number">4</span>Genereer Eindrapport</h2>
+        <p>Upload het FTF-voorspelde bestand uit stap 3 om het complete eindrapport te genereren met 6 tabbladen.</p>
+        
+        <div class="value-badges">
+          <div class="badge badge-ftf">📊 Storingen per ketel</div>
+          <div class="badge badge-ftf">📊 Storingen per bouwjaar</div>
+          <div class="badge badge-ftf">📊 Storingen per maand</div>
+          <div class="badge badge-fault">📊 Afhandelingstijd</div>
+        </div>
+        
+        <div class="examples">
+          <h4>Eindrapport bevat 6 tabbladen:</h4>
+          <ul>
+            <li><strong>Storingen per ketel:</strong> Overzicht per keteltype</li>
+            <li><strong>Storingen per bouwjaar:</strong> Verdeling over bouwjaren</li>
+            <li><strong>Storingen per maand:</strong> Kwartaaloverzicht (3 maanden)</li>
+            <li><strong>Afhandelingstijd:</strong> Dagen tot oplossing</li>
+            <li><strong>FTF:</strong> Ketel gerelateerde werkorders</li>
+            <li><strong>Niet ketel gerelateerd:</strong> Overige werkorders</li>
+          </ul>
+        </div>
+        
+        <div class="file-upload-area">
+          <input type="file" id="fileInput4" accept=".xlsx,.xls" />
+          <button id="btn4" onclick="uploadFile4()">📁 Genereer Eindrapport</button>
+          <div class="progress-bar" id="progress4"><div class="progress-fill"></div></div>
+          <div class="status-message" id="status4"></div>
         </div>
       </div>
     </div>
@@ -473,6 +504,40 @@
         showStatus(3, "❌ Fout bij FTF voorspelling: " + error.message, true);
       } finally {
         hideProgress(3);
+      }
+    }
+
+    async function uploadFile4() {
+      const fileInput = document.getElementById('fileInput4');
+      if (!fileInput.files.length) {
+        showStatus(4, "⚠️ Selecteer het FTF-voorspelde bestand uit stap 3", true);
+        return;
+      }
+      
+      const file = fileInput.files[0];
+      showProgress(4);
+      
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch('/generate_final_report/', {
+          method: 'POST',
+          body: formData
+        });
+        
+        if (!response.ok) {
+          throw new Error('Rapport generatie mislukt');
+        }
+        
+        const blob = await response.blob();
+        downloadFile(blob, 'eindrapport_' + file.name);
+        showStatus(4, "✅ Eindrapport gegenereerd! 6 tabbladen met alle analyses.");
+        
+      } catch (error) {
+        showStatus(4, "❌ Fout bij genereren rapport: " + error.message, true);
+      } finally {
+        hideProgress(4);
       }
     }
   </script>

@@ -914,6 +914,285 @@ async def predict_ftf(file: UploadFile = File(...)):
         headers={"Content-Disposition": f"attachment; filename=ftf_voorspeld_{file.filename}"}
     )
 
+@app.post("/generate_final_report/")
+async def generate_final_report(file: UploadFile = File(...)):
+    """
+    Genereer eindrapport met 6 tabbladen:
+    1. Storingen per ketel
+    2. Storingen per bouwjaar
+    3. Storingen per maand
+    4. Afhandelingstijd
+    5. FTF (ketel gerelateerd)
+    6. Niet ketel gerelateerd
+    """
+    from openpyxl.styles import Font, Alignment, Border, Side
+    
+    contents = await file.read()
+    
+    # Lees alle werkbladen
+    try:
+        all_sheets = pd.read_excel(BytesIO(contents), sheet_name=None)
+    except:
+        df = pd.read_excel(BytesIO(contents))
+        all_sheets = {"Sheet1": df}
+    
+    # Zoek FTF werkblad (ketel gerelateerd data)
+    df_ftf = None
+    df_niet_ketel = None
+    
+    # Zoek naar specifieke werkbladen
+    for sheet_name, sheet_df in all_sheets.items():
+        sheet_lower = sheet_name.lower()
+        if "ketel gerelateerd" in sheet_lower or sheet_lower == "ftf":
+            if "FTF" in sheet_df.columns or "Ketel gerelateerd" in sheet_df.columns:
+                df_ftf = sheet_df.copy()
+        elif "niet ketel" in sheet_lower:
+            df_niet_ketel = sheet_df.copy()
+    
+    # Fallback: als geen specifieke werkbladen, gebruik eerste werkblad
+    if df_ftf is None:
+        first_sheet = list(all_sheets.values())[0]
+        if "Ketel gerelateerd" in first_sheet.columns:
+            df_ftf = first_sheet[first_sheet["Ketel gerelateerd"] == "ja"].copy()
+            df_niet_ketel = first_sheet[first_sheet["Ketel gerelateerd"] == "nee"].copy()
+        else:
+            df_ftf = first_sheet.copy()
+    
+    if df_niet_ketel is None:
+        df_niet_ketel = pd.DataFrame()
+    
+    # ========== ANALYSE TABBLADEN MAKEN ==========
+    
+    # Blauwe header styling
+    header_fill = PatternFill(start_color="B8CCE4", end_color="B8CCE4", fill_type="solid")
+    header_font = Font(bold=True)
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    
+    # --- TAB 1: Storingen per ketel ---
+    df_storingen_ketel = pd.DataFrame()
+    if "Installatie apparaat omschrijving" in df_ftf.columns:
+        counts = df_ftf["Installatie apparaat omschrijving"].value_counts().reset_index()
+        counts.columns = ["Rijlabels", "Aantal van Werkbon nummer"]
+        # Voeg eindtotaal toe
+        eindtotaal = pd.DataFrame([["Eindtotaal", counts["Aantal van Werkbon nummer"].sum()]], 
+                                   columns=["Rijlabels", "Aantal van Werkbon nummer"])
+        df_storingen_ketel = pd.concat([counts, eindtotaal], ignore_index=True)
+    
+    # --- TAB 2: Storingen per bouwjaar ---
+    df_storingen_bouwjaar = pd.DataFrame()
+    if "Installatie bouwjaar" in df_ftf.columns:
+        # Maak pivot tabel met bouwjaren als kolommen
+        bouwjaar_counts = df_ftf["Installatie bouwjaar"].value_counts().sort_index()
+        
+        # Maak horizontale layout - sorteer numerieke jaren numeriek, strings alfabetisch
+        def safe_year_str(year):
+            """Converteer jaar naar string, robust tegen non-numerieke waarden"""
+            if pd.isna(year):
+                return str(year)
+            try:
+                return str(int(float(year)))
+            except (ValueError, TypeError):
+                return str(year)
+        
+        years = sorted([y for y in bouwjaar_counts.index if pd.notna(y)], 
+                      key=lambda x: (0, int(float(x))) if str(x).replace('.','').isdigit() else (1, str(x)))
+        data_row = {"Rijlabels": "CV-ketel"}
+        for year in years:
+            year_str = safe_year_str(year)
+            data_row[year_str] = bouwjaar_counts.get(year, 0)
+        data_row["Eindtotaal"] = sum(data_row[k] for k in data_row if k != "Rijlabels")
+        
+        # Eindtotaal rij
+        totaal_row = {"Rijlabels": "Eindtotaal"}
+        for year in years:
+            year_str = safe_year_str(year)
+            totaal_row[year_str] = bouwjaar_counts.get(year, 0)
+        totaal_row["Eindtotaal"] = data_row["Eindtotaal"]
+        
+        df_storingen_bouwjaar = pd.DataFrame([data_row, totaal_row])
+    
+    # --- TAB 3: Storingen per maand (kwartaal) ---
+    df_storingen_maand = pd.DataFrame()
+    if "Uitvoerdatum" in df_ftf.columns:
+        # Converteer naar datetime
+        df_ftf["Uitvoerdatum_dt"] = pd.to_datetime(df_ftf["Uitvoerdatum"], errors="coerce")
+        
+        # Haal maanden op
+        df_ftf["Maand"] = df_ftf["Uitvoerdatum_dt"].dt.month
+        
+        # Bepaal kwartaal op basis van data
+        maanden_aanwezig = df_ftf["Maand"].dropna().unique()
+        
+        # Bepaal welk kwartaal
+        kwartalen = {
+            1: (["jan", "feb", "mar"], [1, 2, 3]),
+            2: (["apr", "mei", "jun"], [4, 5, 6]),
+            3: (["jul", "aug", "sep"], [7, 8, 9]),
+            4: (["okt", "nov", "dec"], [10, 11, 12])
+        }
+        
+        # Vind het kwartaal met de meeste data
+        best_quarter = 1
+        max_count = 0
+        for q, (maand_namen, maand_nummers) in kwartalen.items():
+            count = sum(1 for m in maanden_aanwezig if m in maand_nummers)
+            if count > max_count:
+                max_count = count
+                best_quarter = q
+        
+        maand_namen, maand_nummers = kwartalen[best_quarter]
+        
+        # Tel per maand
+        maand_counts = {}
+        for naam, num in zip(maand_namen, maand_nummers):
+            maand_counts[naam] = len(df_ftf[df_ftf["Maand"] == num])
+        
+        # Maak dataframe
+        data_row = {"": "Aantal van Werkbon nummer"}
+        for naam in maand_namen:
+            data_row[naam] = maand_counts[naam]
+        data_row["Eindtotaal"] = sum(maand_counts.values())
+        
+        df_storingen_maand = pd.DataFrame([data_row])
+        
+        # Verwijder tijdelijke kolommen
+        df_ftf = df_ftf.drop(columns=["Uitvoerdatum_dt", "Maand"], errors="ignore")
+    
+    # --- TAB 4: Afhandelingstijd ---
+    df_afhandelingstijd = pd.DataFrame()
+    if "Opgelost binnen" in df_ftf.columns:
+        # Tel per afhandelingstijd (dagen)
+        tijd_counts = df_ftf["Opgelost binnen"].value_counts().sort_index()
+        
+        # Maak dataframe
+        data = []
+        for tijd, count in tijd_counts.items():
+            if pd.notna(tijd):
+                data.append({"Rijlabels": int(tijd) if isinstance(tijd, (int, float)) else tijd, 
+                            "Aantal van Werkbon nummer": count})
+        
+        if data:
+            df_afhandelingstijd = pd.DataFrame(data)
+            # Sorteer op Rijlabels (numeriek)
+            df_afhandelingstijd["Rijlabels"] = pd.to_numeric(df_afhandelingstijd["Rijlabels"], errors="coerce")
+            df_afhandelingstijd = df_afhandelingstijd.sort_values("Rijlabels").reset_index(drop=True)
+            
+            # Voeg eindtotaal toe
+            eindtotaal = pd.DataFrame([["Eindtotaal", df_afhandelingstijd["Aantal van Werkbon nummer"].sum()]], 
+                                       columns=["Rijlabels", "Aantal van Werkbon nummer"])
+            df_afhandelingstijd = pd.concat([df_afhandelingstijd, eindtotaal], ignore_index=True)
+    
+    # ========== SCHRIJF NAAR EXCEL MET STYLING ==========
+    stream = BytesIO()
+    with pd.ExcelWriter(stream, engine="openpyxl") as writer:
+        # Tab 1: Storingen per ketel
+        if not df_storingen_ketel.empty:
+            df_storingen_ketel.to_excel(writer, sheet_name="Storingen per ketel", index=False, startrow=2)
+            ws = writer.book["Storingen per ketel"]
+            # FTF filter header
+            ws.cell(row=1, column=1, value="FTF")
+            ws.cell(row=1, column=2, value="1")
+            ws["A1"].fill = header_fill
+            ws["B1"].fill = header_fill
+            # Kolom headers styling
+            for col in range(1, len(df_storingen_ketel.columns) + 1):
+                ws.cell(row=3, column=col).fill = header_fill
+                ws.cell(row=3, column=col).font = header_font
+            # Eindtotaal styling
+            last_row = len(df_storingen_ketel) + 3
+            for col in range(1, len(df_storingen_ketel.columns) + 1):
+                ws.cell(row=last_row, column=col).fill = header_fill
+                ws.cell(row=last_row, column=col).font = header_font
+        
+        # Tab 2: Storingen per bouwjaar
+        if not df_storingen_bouwjaar.empty:
+            df_storingen_bouwjaar.to_excel(writer, sheet_name="Storingen per bouwjaar", index=False, startrow=3)
+            ws = writer.book["Storingen per bouwjaar"]
+            # FTF filter header
+            ws.cell(row=1, column=1, value="FTF")
+            ws.cell(row=1, column=2, value="1")
+            ws["A1"].fill = header_fill
+            ws["B1"].fill = header_fill
+            # Kolomlabels header
+            ws.cell(row=3, column=2, value="Kolomlabels")
+            ws.cell(row=3, column=2).fill = header_fill
+            # Kolom headers styling
+            for col in range(1, len(df_storingen_bouwjaar.columns) + 1):
+                ws.cell(row=4, column=col).fill = header_fill
+                ws.cell(row=4, column=col).font = header_font
+            # Eindtotaal styling
+            last_row = len(df_storingen_bouwjaar) + 4
+            for col in range(1, len(df_storingen_bouwjaar.columns) + 1):
+                ws.cell(row=last_row, column=col).fill = header_fill
+                ws.cell(row=last_row, column=col).font = header_font
+        
+        # Tab 3: Storingen per maand
+        if not df_storingen_maand.empty:
+            df_storingen_maand.to_excel(writer, sheet_name="Storingen per maand", index=False, startrow=3)
+            ws = writer.book["Storingen per maand"]
+            # FTF filter header
+            ws.cell(row=1, column=1, value="FTF")
+            ws.cell(row=1, column=2, value="1")
+            ws["A1"].fill = header_fill
+            ws["B1"].fill = header_fill
+            # Kolomlabels header
+            ws.cell(row=3, column=2, value="Kolomlabels")
+            ws.cell(row=3, column=2).fill = header_fill
+            # Kolom headers styling
+            for col in range(1, len(df_storingen_maand.columns) + 1):
+                ws.cell(row=4, column=col).fill = header_fill
+                ws.cell(row=4, column=col).font = header_font
+        
+        # Tab 4: Afhandelingstijd
+        if not df_afhandelingstijd.empty:
+            df_afhandelingstijd.to_excel(writer, sheet_name="Afhandelingstijd", index=False, startrow=2)
+            ws = writer.book["Afhandelingstijd"]
+            # FTF filter header
+            ws.cell(row=1, column=1, value="FTF")
+            ws.cell(row=1, column=2, value="1")
+            ws["A1"].fill = header_fill
+            ws["B1"].fill = header_fill
+            # Kolom headers styling
+            for col in range(1, len(df_afhandelingstijd.columns) + 1):
+                ws.cell(row=3, column=col).fill = header_fill
+                ws.cell(row=3, column=col).font = header_font
+            # Eindtotaal styling
+            last_row = len(df_afhandelingstijd) + 3
+            for col in range(1, len(df_afhandelingstijd.columns) + 1):
+                ws.cell(row=last_row, column=col).fill = header_fill
+                ws.cell(row=last_row, column=col).font = header_font
+        
+        # Tab 5: FTF (ketel gerelateerd data) - altijd schrijven
+        df_ftf.to_excel(writer, sheet_name="FTF", index=False)
+        ws = writer.book["FTF"]
+        # Header styling
+        if len(df_ftf.columns) > 0:
+            for col in range(1, len(df_ftf.columns) + 1):
+                ws.cell(row=1, column=col).fill = header_fill
+                ws.cell(row=1, column=col).font = header_font
+        
+        # Tab 6: Niet ketel gerelateerd - altijd schrijven
+        df_niet_ketel.to_excel(writer, sheet_name="Niet ketel gerelateerd", index=False)
+        ws = writer.book["Niet ketel gerelateerd"]
+        # Header styling
+        if len(df_niet_ketel.columns) > 0:
+            for col in range(1, len(df_niet_ketel.columns) + 1):
+                ws.cell(row=1, column=col).fill = header_fill
+                ws.cell(row=1, column=col).font = header_font
+    
+    stream.seek(0)
+    
+    return StreamingResponse(
+        stream,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=eindrapport_{file.filename}"}
+    )
+
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 5000))  # Render uses PORT env var, Replit uses 5000
