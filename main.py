@@ -591,16 +591,41 @@ async def process_excel(file: UploadFile = File(...)):
 
 @app.post("/split_output/")
 async def split_output(file: UploadFile = File(...)):
+    """
+    Split het bestand in 2 tabbladen:
+    - FTF: rijen waar "Ketel gerelateerd" = "ja"
+    - Niet ketel gerelateerd: rijen waar "Ketel gerelateerd" = "nee"
+    """
+    from openpyxl.styles import Font, PatternFill
+    
     contents = await file.read()
     df = pd.read_excel(BytesIO(contents))
 
-    df_niet_ketel = df[df["Ketel gerelateerd"] == "nee"]
-    df_ketel_gerelateerd = df[df["Ketel gerelateerd"] == "ja"]
+    df_niet_ketel = df[df["Ketel gerelateerd"] == "nee"].copy()
+    df_ftf = df[df["Ketel gerelateerd"] == "ja"].copy()
+
+    # Blauwe header styling
+    header_fill = PatternFill(start_color="B8CCE4", end_color="B8CCE4", fill_type="solid")
+    header_font = Font(bold=True)
 
     stream = BytesIO()
     with pd.ExcelWriter(stream, engine="openpyxl") as writer:
+        # Tab 1: FTF (ketel gerelateerd)
+        df_ftf.to_excel(writer, index=False, sheet_name="FTF")
+        ws_ftf = writer.book["FTF"]
+        # Header styling
+        for col in range(1, len(df_ftf.columns) + 1):
+            ws_ftf.cell(row=1, column=col).fill = header_fill
+            ws_ftf.cell(row=1, column=col).font = header_font
+        
+        # Tab 2: Niet ketel gerelateerd
         df_niet_ketel.to_excel(writer, index=False, sheet_name="Niet ketel gerelateerd")
-        df_ketel_gerelateerd.to_excel(writer, index=False, sheet_name="Ketel gerelateerd")
+        ws_niet = writer.book["Niet ketel gerelateerd"]
+        # Header styling
+        for col in range(1, len(df_niet_ketel.columns) + 1):
+            ws_niet.cell(row=1, column=col).fill = header_fill
+            ws_niet.cell(row=1, column=col).font = header_font
+    
     stream.seek(0)
 
     return StreamingResponse(
@@ -621,11 +646,14 @@ async def predict_ftf(file: UploadFile = File(...)):
         df = pd.read_excel(BytesIO(contents))
         all_sheets = {"Sheet1": df}
     
-    # Zoek naar het "Ketel gerelateerd" werkblad, anders gebruik het eerste werkblad met 'j' rijen
+    # Zoek naar het "FTF" werkblad (nieuw format), of "Ketel gerelateerd" (oud format)
     target_sheet = None
     target_sheet_name = None
     
-    if "Ketel gerelateerd" in all_sheets:
+    if "FTF" in all_sheets:
+        target_sheet = all_sheets["FTF"]
+        target_sheet_name = "FTF"
+    elif "Ketel gerelateerd" in all_sheets:
         target_sheet = all_sheets["Ketel gerelateerd"]
         target_sheet_name = "Ketel gerelateerd"
     else:
@@ -872,21 +900,36 @@ async def predict_ftf(file: UploadFile = File(...)):
     ]
 
     # Maak output Excel bestand met alle werkbladen
+    from openpyxl.styles import Font
+    header_fill = PatternFill(start_color="B8CCE4", end_color="B8CCE4", fill_type="solid")
+    header_font = Font(bold=True)
+    
     stream = BytesIO()
     with pd.ExcelWriter(stream, engine="openpyxl") as writer:
         for sheet_name, sheet_df in all_sheets.items():
-            # Filter kolommen voor output
-            output_cols = [col for col in sheet_df.columns if col not in exclude_cols]
-            output_df = sheet_df[output_cols].copy()
+            # Alleen kolom filtering toepassen op de target sheet (FTF)
+            # Andere sheets (bijv. Niet ketel gerelateerd) behouden alle originele kolommen
+            if sheet_name == target_sheet_name:
+                output_cols = [col for col in sheet_df.columns if col not in exclude_cols]
+                output_df = sheet_df[output_cols].copy()
+            else:
+                # Niet-target sheets: behoud alle kolommen ongewijzigd
+                output_df = sheet_df.copy()
+                output_cols = list(output_df.columns)
             
             # Schrijf naar Excel
             output_df.to_excel(writer, sheet_name=sheet_name, index=False)
             
+            wb = writer.book
+            ws = wb[sheet_name]
+            
+            # Blauwe header styling voor alle sheets
+            for col in range(1, len(output_cols) + 1):
+                ws.cell(row=1, column=col).fill = header_fill
+                ws.cell(row=1, column=col).font = header_font
+            
             # Alleen kleurcodering toepassen op het werkblad met FTF voorspellingen
             if sheet_name == target_sheet_name:
-                wb = writer.book
-                ws = wb[sheet_name]
-                
                 geel = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
                 oranje = PatternFill(start_color="FFA500", end_color="FFA500", fill_type="solid")
                 

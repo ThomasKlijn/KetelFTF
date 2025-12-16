@@ -286,18 +286,18 @@
       
       <div class="step">
         <h2><span class="step-number">2</span>Bestand Splitsen</h2>
-        <p>Upload het bestand uit stap 1 (na handmatige correcties) om te splitsen in twee aparte bestanden.</p>
+        <p>Upload het bestand uit stap 1 (na handmatige correcties) om te splitsen in één bestand met twee tabbladen.</p>
         
         <div class="value-badges">
-          <div class="badge badge-nee">📄 "nee" → Niet ketel bestand</div>
-          <div class="badge badge-ja">📄 "ja" → Ketel bestand</div>
+          <div class="badge badge-ja">📄 Tab "FTF" - Ketel gerelateerd</div>
+          <div class="badge badge-nee">📄 Tab "Niet ketel gerelateerd"</div>
         </div>
         
         <div class="examples">
-          <h4>Resultaat:</h4>
+          <h4>Resultaat (1 bestand, 2 tabbladen):</h4>
           <ul>
-            <li>Bestand 1: Alle rijen met "Ketel gerelateerd" = <strong>"nee"</strong></li>
-            <li>Bestand 2: Alle rijen met "Ketel gerelateerd" = <strong>"ja"</strong></li>
+            <li><strong>FTF:</strong> Alle rijen met "Ketel gerelateerd" = "ja"</li>
+            <li><strong>Niet ketel gerelateerd:</strong> Alle rijen met "Ketel gerelateerd" = "nee"</li>
           </ul>
         </div>
         
@@ -311,7 +311,7 @@
       
       <div class="step">
         <h2><span class="step-number">3</span>FTF Voorspelling</h2>
-        <p>Upload het "ja" bestand uit stap 2 om First Time Fix status te voorspellen voor alle ketel gerelateerde werkorders.</p>
+        <p>Upload het gesplitste bestand uit stap 2. Het systeem leest het "FTF" tabblad en voorspelt de First Time Fix status.</p>
         
         <div class="value-badges">
           <div class="badge badge-ftf">✅ FTF - First Time Fix</div>
@@ -464,7 +464,7 @@
         
         const blob = await response.blob();
         downloadFile(blob, 'gesplitst_' + file.name);
-        showStatus(2, "✅ Bestand gesplitst! Twee aparte bestanden gedownload: 'nee' en 'ja' werkorders.");
+        showStatus(2, "✅ Bestand gesplitst! Download bevat 2 tabbladen: 'FTF' en 'Niet ketel gerelateerd'.");
         
       } catch (error) {
         showStatus(2, "❌ Fout bij splitsen: " + error.message, true);
@@ -476,7 +476,7 @@
     async function uploadFile3() {
       const fileInput = document.getElementById('fileInput3');
       if (!fileInput.files.length) {
-        showStatus(3, "⚠️ Selecteer het 'ja' bestand uit stap 2", true);
+        showStatus(3, "⚠️ Selecteer het gesplitste bestand uit stap 2", true);
         return;
       }
       
