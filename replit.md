@@ -10,6 +10,12 @@ This is a machine learning-powered FastAPI application that processes Excel file
 - **File Processing**: Excel file processing with color-coded predictions
 
 ## Recent Changes
+- **2025-12-16**: Updated file splitting workflow (Step 2)
+  - Step 2 now creates 1 Excel file with 2 tabs: "FTF" and "Niet ketel gerelateerd"
+  - Step 3 preserves both tabs and only processes the FTF tab for predictions
+  - Step 4 reads both tabs to generate the 6-tab final report
+  - All tabs have blue header styling (B8CCE4)
+  - Fixed bug in Step 4 where non-numeric bouwjaar values caused errors
 - **2025-09-11**: Successfully imported from GitHub and configured for Replit environment
   - Installed all Python dependencies (FastAPI, pandas, numpy, scikit-learn, joblib, openpyxl)
   - Configured FastAPI workflow on port 5000
